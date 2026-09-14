@@ -3,21 +3,27 @@ import { Link } from "react-router-dom";
 import { ALERT, fmtPHP } from "../lib/api";
 import { AlertLevelChip } from "./AlertLevelChip";
 
-export function ProjectMap({ projects = [], center = [8.55, 124.65], zoom = 9, publicMode = false, height = "600px" }) {
+export function ProjectMap({ projects = [], center = [8.55, 124.65], zoom = 9, publicMode = false, height = "600px", maxPins = 800 }) {
   const linkBase = publicMode ? "/public/project" : "/console/projects";
+  // Cap markers for perf; when capped, prioritise higher-severity pins
+  const order = { red: 0, orange: 1, yellow: 2, green: 3 };
+  const capped = projects.length > maxPins
+    ? [...projects].sort((a, b) => (order[a.flags?.alert_level || "green"] - order[b.flags?.alert_level || "green"])).slice(0, maxPins)
+    : projects;
   return (
     <MapContainer
       key={`${center[0]}-${center[1]}-${zoom}`}
       center={center}
       zoom={zoom}
       style={{ height, width: "100%", borderRadius: 12 }}
+      preferCanvas={true}
       data-testid="project-leaflet-map"
     >
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/">OSM</a> contributors'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
-      {projects.map((p) => {
+      {capped.map((p) => {
         const level = p.flags?.alert_level || "green";
         const c = ALERT[level].pin;
         return (

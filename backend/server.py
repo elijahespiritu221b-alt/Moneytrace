@@ -115,11 +115,21 @@ async def startup():
         log.info(f"Seeded reviewer {rev_email}")
     # Seed projects
     if await db.projects.count_documents({}) == 0:
-        for p in build_seed_projects():
-            await db.projects.insert_one(p)
-        log.info("Seeded projects")
-        await _recompute_all_flags()
-        await _log_audit("SEED", note="Initial seed data loaded.")
+        try:
+            from import_xlsx import xlsx_path  # noqa
+        except Exception:
+            pass
+        xlsx = "/app/uploads/dilg.xlsx"
+        if os.path.exists(xlsx):
+            log.info(f"Auto-importing seed from {xlsx}")
+            import subprocess
+            subprocess.run(["python", "/app/backend/import_xlsx.py", xlsx], check=False)
+        else:
+            for p in build_seed_projects():
+                await db.projects.insert_one(p)
+            log.info("Seeded synthetic projects")
+            await _recompute_all_flags()
+            await _log_audit("SEED", note="Initial seed data loaded.")
     await _get_rule_config()
 
 
@@ -156,10 +166,12 @@ async def me(user: dict = Depends(get_current_user)):
 # ---------- Projects ----------
 @api.get("/projects")
 async def list_projects(
+    response: Response,
     agency: Optional[str] = None, municipality: Optional[str] = None,
     project_type: Optional[str] = None, status: Optional[str] = None,
     alert_level: Optional[str] = None, flag: Optional[str] = None,
     q: Optional[str] = None, published_only: bool = False,
+    limit: int = 500, offset: int = 0,
     user: dict = Depends(get_current_user),
 ):
     query: dict = {}
@@ -169,16 +181,20 @@ async def list_projects(
     if status: query["status"] = status
     if published_only: query["published"] = True
     if q: query["title"] = {"$regex": q, "$options": "i"}
-    projects = await db.projects.find(query, {"_id": 0}).to_list(2000)
-    flags_map = {f["project_id"]: f async for f in db.project_flags.find({}, {"_id": 0})}
-    out = []
-    for p in projects:
-        f = flags_map.get(p["id"], {})
-        if alert_level and f.get("alert_level") != alert_level:
-            continue
-        if flag and not f.get(flag):
-            continue
-        out.append({**p, "flags": f})
+    # For flag & alert_level filters, we need to join with project_flags — pull matching IDs first
+    if alert_level or flag:
+        fq: dict = {}
+        if alert_level: fq["alert_level"] = alert_level
+        if flag: fq[flag] = True
+        matching = [f["project_id"] async for f in db.project_flags.find(fq, {"project_id": 1})]
+        query["id"] = {"$in": matching}
+    total = await db.projects.count_documents(query)
+    projects = await db.projects.find(query, {"_id": 0}).skip(offset).limit(min(limit, 2000)).to_list(2000)
+    ids = [p["id"] for p in projects]
+    flags_map = {f["project_id"]: f async for f in db.project_flags.find({"project_id": {"$in": ids}}, {"_id": 0})}
+    out = [{**p, "flags": flags_map.get(p["id"], {})} for p in projects]
+    response.headers["X-Total-Count"] = str(total)
+    response.headers["Access-Control-Expose-Headers"] = "X-Total-Count"
     return out
 
 
@@ -406,8 +422,8 @@ async def audit_logs(limit: int = 200, user: dict = Depends(get_current_user)):
 # ---------- Analytics ----------
 @api.get("/analytics/overview")
 async def analytics_overview(user: dict = Depends(get_current_user)):
-    projects = await db.projects.find({}, {"_id": 0}).to_list(5000)
-    flags = await db.project_flags.find({}, {"_id": 0}).to_list(5000)
+    projects = await db.projects.find({}, {"_id": 0}).to_list(20000)
+    flags = await db.project_flags.find({}, {"_id": 0}).to_list(20000)
     by_id = {f["project_id"]: f for f in flags}
     alert_counts = {"green": 0, "yellow": 0, "orange": 0, "red": 0}
     flag_counts = {k: 0 for k in ("F1", "F2", "F3", "F4", "F5", "F6")}
@@ -438,9 +454,17 @@ async def analytics_overview(user: dict = Depends(get_current_user)):
 
 # ---------- Public (no auth) ----------
 @api.get("/public/projects")
-async def public_projects():
-    projects = await db.projects.find({"published": True}, {"_id": 0}).to_list(2000)
-    flags_map = {f["project_id"]: f async for f in db.project_flags.find({}, {"_id": 0})}
+async def public_projects(response: Response, limit: int = 500, offset: int = 0,
+                          municipality: Optional[str] = None, q: Optional[str] = None):
+    query: dict = {"published": True}
+    if municipality: query["municipality"] = municipality
+    if q: query["title"] = {"$regex": q, "$options": "i"}
+    total = await db.projects.count_documents(query)
+    projects = await db.projects.find(query, {"_id": 0}).skip(offset).limit(min(limit, 2000)).to_list(2000)
+    ids = [p["id"] for p in projects]
+    flags_map = {f["project_id"]: f async for f in db.project_flags.find({"project_id": {"$in": ids}}, {"_id": 0})}
+    response.headers["X-Total-Count"] = str(total)
+    response.headers["Access-Control-Expose-Headers"] = "X-Total-Count"
     return [{**p, "flags": flags_map.get(p["id"], {})} for p in projects]
 
 
@@ -455,8 +479,8 @@ async def public_project(pid: str):
 
 @api.get("/public/overview")
 async def public_overview():
-    projects = await db.projects.find({"published": True}, {"_id": 0}).to_list(5000)
-    flags = await db.project_flags.find({}, {"_id": 0}).to_list(5000)
+    projects = await db.projects.find({"published": True}, {"_id": 0}).to_list(20000)
+    flags = await db.project_flags.find({}, {"_id": 0}).to_list(20000)
     by_id = {f["project_id"]: f for f in flags}
     alert_counts = {"green": 0, "yellow": 0, "orange": 0, "red": 0}
     total_budget = 0.0

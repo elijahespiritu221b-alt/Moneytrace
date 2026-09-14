@@ -15,15 +15,17 @@ import { Search, Filter } from "lucide-react";
 export default function Projects() {
   const nav = useNavigate();
   const [projects, setProjects] = useState([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({ q: "", agency: "all", municipality: "all", project_type: "all", status: "all", alert_level: "all", flag: "all" });
 
   const load = async () => {
     setLoading(true);
-    const params = {};
+    const params = { limit: 500 };
     Object.entries(filters).forEach(([k, v]) => { if (v && v !== "all") params[k] = v; });
-    const { data } = await api.get("/projects", { params });
-    setProjects(data);
+    const res = await api.get("/projects", { params });
+    setProjects(res.data);
+    setTotal(parseInt(res.headers["x-total-count"] || res.data.length));
     setLoading(false);
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [filters]);
@@ -43,7 +45,11 @@ export default function Projects() {
         <div className="flex items-end justify-between flex-wrap gap-3">
           <div>
             <h1 className="font-display text-3xl font-bold tracking-tight">Projects</h1>
-            <p className="text-slate-400 text-sm mt-1">{projects.length} record{projects.length !== 1 ? "s" : ""} · triage by alert level and flag</p>
+            <p className="text-slate-400 text-sm mt-1">
+              Showing <span className="text-slate-100 font-mono">{projects.length}</span> of{" "}
+              <span className="text-slate-100 font-mono">{total.toLocaleString()}</span> records
+              {total > projects.length && <span className="text-amber-400"> · use filters to narrow further</span>}
+            </p>
           </div>
         </div>
 

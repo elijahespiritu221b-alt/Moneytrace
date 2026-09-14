@@ -12,20 +12,23 @@ import { Landmark, MapPin, TrendingUp, Search } from "lucide-react";
 
 export default function PublicPortal() {
   const [projects, setProjects] = useState([]);
+  const [total, setTotal] = useState(0);
   const [overview, setOverview] = useState(null);
   const [q, setQ] = useState("");
   const [muni, setMuni] = useState("all");
 
   useEffect(() => {
-    api.get("/public/projects").then((r) => setProjects(r.data));
+    const params = { limit: 500 };
+    if (muni !== "all") params.municipality = muni;
+    if (q) params.q = q;
+    api.get("/public/projects", { params }).then((r) => {
+      setProjects(r.data);
+      setTotal(parseInt(r.headers["x-total-count"] || r.data.length));
+    });
     api.get("/public/overview").then((r) => setOverview(r.data));
-  }, []);
+  }, [muni, q]);
 
-  const filtered = useMemo(() => projects.filter((p) => {
-    if (muni !== "all" && p.municipality !== muni) return false;
-    if (q && !p.title.toLowerCase().includes(q.toLowerCase())) return false;
-    return true;
-  }), [projects, q, muni]);
+  const filtered = projects;
 
   const munis = Array.from(new Set(projects.map((p) => p.municipality))).sort();
 
@@ -69,12 +72,15 @@ export default function PublicPortal() {
 
         <section>
           <Card className="p-2 bg-white border-slate-200 overflow-hidden">
-            <ProjectMap projects={filtered} publicMode height="450px" />
+            <ProjectMap projects={filtered} publicMode height="450px" maxPins={600} />
           </Card>
+          <p className="text-xs text-slate-500 mt-2 text-center">
+            Showing <b>{Math.min(filtered.length, 60)}</b> of <b>{total.toLocaleString()}</b> published projects · use search &amp; filters to narrow the list
+          </p>
         </section>
 
         <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map((p) => (
+          {filtered.slice(0, 60).map((p) => (
             <Link key={p.id} to={`/public/project/${p.id}`} data-testid={`public-project-${p.id}`}
               className="group">
               <Card className="p-4 bg-white border-slate-200 hover:border-emerald-500 transition-colors h-full">
