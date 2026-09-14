@@ -491,10 +491,15 @@ async def analytics_overview(user: dict = Depends(get_current_user)):
 # ---------- Public (no auth) ----------
 @api.get("/public/projects")
 async def public_projects(response: Response, limit: int = 500, offset: int = 0,
-                          municipality: Optional[str] = None, q: Optional[str] = None):
+                          municipality: Optional[str] = None, q: Optional[str] = None,
+                          department: Optional[str] = None, alert_level: Optional[str] = None):
     query: dict = {"published": True}
     if municipality: query["municipality"] = municipality
+    if department: query["department"] = department
     if q: query["title"] = {"$regex": q, "$options": "i"}
+    if alert_level:
+        matching = [f["project_id"] async for f in db.project_flags.find({"alert_level": alert_level}, {"project_id": 1})]
+        query["id"] = {"$in": matching}
     total = await db.projects.count_documents(query)
     projects = await db.projects.find(query, {"_id": 0}).skip(offset).limit(min(limit, 2000)).to_list(2000)
     ids = [p["id"] for p in projects]
@@ -502,6 +507,27 @@ async def public_projects(response: Response, limit: int = 500, offset: int = 0,
     response.headers["X-Total-Count"] = str(total)
     response.headers["Access-Control-Expose-Headers"] = "X-Total-Count"
     return [{**p, "flags": flags_map.get(p["id"], {})} for p in projects]
+
+
+@api.get("/public/departments")
+async def public_departments():
+    """Per-department counts + budget + alert breakdown for public tabs."""
+    projects = await db.projects.find({"published": True}, {"_id": 0}).to_list(20000)
+    flags = await db.project_flags.find({}, {"_id": 0}).to_list(20000)
+    fby = {f["project_id"]: f for f in flags}
+    dep = {}
+    for p in projects:
+        d = p.get("department") or "Other"
+        b = dep.setdefault(d, {
+            "department": d, "count": 0, "total_budget": 0.0,
+            "alert_counts": {"green": 0, "yellow": 0, "orange": 0, "red": 0},
+        })
+        b["count"] += 1
+        b["total_budget"] += float(p.get("current_budget", 0))
+        lv = fby.get(p["id"], {}).get("alert_level", "green")
+        b["alert_counts"][lv] = b["alert_counts"].get(lv, 0) + 1
+    order = {"DILG": 0, "DepEd": 1, "DOH": 2, "DPWH": 3}
+    return sorted(dep.values(), key=lambda x: order.get(x["department"], 99))
 
 
 @api.get("/public/projects/{pid}")
