@@ -420,6 +420,42 @@ async def audit_logs(limit: int = 200, user: dict = Depends(get_current_user)):
 
 
 # ---------- Analytics ----------
+@api.get("/analytics/by-office")
+async def analytics_by_office(user: dict = Depends(get_current_user)):
+    projects = await db.projects.find({}, {"_id": 0}).to_list(20000)
+    flags = await db.project_flags.find({}, {"_id": 0}).to_list(20000)
+    fby = {f["project_id"]: f for f in flags}
+    by_office = {}
+    for p in projects:
+        code = p.get("office_code") or "OTHER"
+        agency = p.get("agency") or code
+        b = by_office.setdefault(code, {
+            "office_code": code,
+            "office_agency": agency,
+            "count": 0,
+            "total_budget": 0.0,
+            "total_disbursed": 0.0,
+            "alert_counts": {"green": 0, "yellow": 0, "orange": 0, "red": 0},
+            "flag_counts": {"F1": 0, "F2": 0, "F3": 0, "F4": 0, "F5": 0, "F6": 0},
+            "municipalities": set(),
+        })
+        b["count"] += 1
+        b["total_budget"] += float(p.get("current_budget", 0))
+        b["total_disbursed"] += float(p.get("disbursed_amount", 0))
+        b["municipalities"].add(p.get("municipality", ""))
+        f = fby.get(p["id"], {})
+        b["alert_counts"][f.get("alert_level", "green")] = b["alert_counts"].get(f.get("alert_level", "green"), 0) + 1
+        for c in ("F1", "F2", "F3", "F4", "F5", "F6"):
+            if f.get(c): b["flag_counts"][c] += 1
+    out = []
+    for k, v in by_office.items():
+        v["municipality_count"] = len(v["municipalities"])
+        del v["municipalities"]
+        out.append(v)
+    out.sort(key=lambda x: -(x["alert_counts"]["red"] * 100 + x["alert_counts"]["orange"] * 10 + x["alert_counts"]["yellow"]))
+    return out
+
+
 @api.get("/analytics/overview")
 async def analytics_overview(user: dict = Depends(get_current_user)):
     projects = await db.projects.find({}, {"_id": 0}).to_list(20000)

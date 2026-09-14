@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { api, fmtPHP, fmtDate, ALERT } from "../lib/api";
 import { ConsoleLayout } from "../components/Layout";
 import { AlertLevelChip } from "../components/AlertLevelChip";

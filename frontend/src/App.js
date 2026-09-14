@@ -8,6 +8,7 @@ import ProjectDetail from "./pages/ProjectDetail";
 import RuleConfig from "./pages/RuleConfig";
 import AuditLog from "./pages/AuditLog";
 import ChangeRequests from "./pages/ChangeRequests";
+import Offices from "./pages/Offices";
 import PublicPortal from "./pages/PublicPortal";
 import PublicProjectDetail from "./pages/PublicProjectDetail";
 
@@ -30,6 +31,7 @@ function App() {
           <Route path="/public" element={<PublicPortal />} />
           <Route path="/public/project/:id" element={<PublicProjectDetail />} />
           <Route path="/console" element={<Protected><Dashboard /></Protected>} />
+          <Route path="/console/offices" element={<Protected><Offices /></Protected>} />
           <Route path="/console/projects" element={<Protected><Projects /></Protected>} />
           <Route path="/console/projects/:id" element={<Protected><ProjectDetail /></Protected>} />
           <Route path="/console/requests" element={<Protected><ChangeRequests /></Protected>} />
