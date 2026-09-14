@@ -34,15 +34,35 @@ export default function PublicPortal() {
   }, []);
 
   useEffect(() => {
-    const params = { limit: 500 };
-    if (tab !== "all") params.department = tab;
-    if (muni !== "all") params.municipality = muni;
-    if (alert !== "all") params.alert_level = alert;
-    if (q) params.q = q;
-    api.get("/public/projects", { params }).then((r) => {
-      setProjects(r.data);
-      setTotal(parseInt(r.headers["x-total-count"] || r.data.length));
-    });
+    const load = async () => {
+      if (tab === "all") {
+        // Balanced sample: 150 per department so the map is visually representative
+        const depts = ["DILG", "DepEd", "DOH", "DPWH"];
+        const commonParams = { limit: 150 };
+        if (muni !== "all") commonParams.municipality = muni;
+        if (alert !== "all") commonParams.alert_level = alert;
+        if (q) commonParams.q = q;
+        const responses = await Promise.all(
+          depts.map((d) => api.get("/public/projects", { params: { ...commonParams, department: d } }))
+        );
+        const merged = responses.flatMap((r) => r.data);
+        // Total across all agencies still comes from /public/overview
+        const totalHeader = responses.reduce(
+          (acc, r) => acc + parseInt(r.headers["x-total-count"] || 0), 0
+        );
+        setProjects(merged);
+        setTotal(totalHeader);
+      } else {
+        const params = { limit: 500, department: tab };
+        if (muni !== "all") params.municipality = muni;
+        if (alert !== "all") params.alert_level = alert;
+        if (q) params.q = q;
+        const r = await api.get("/public/projects", { params });
+        setProjects(r.data);
+        setTotal(parseInt(r.headers["x-total-count"] || r.data.length));
+      }
+    };
+    load();
   }, [tab, muni, q, alert]);
 
   const active = tab === "all" ? null : departments.find((d) => d.department === tab);
@@ -174,13 +194,59 @@ export default function PublicPortal() {
         </Card>
 
         <section>
+          <div className="mb-3 flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">
+                Map showing
+              </span>
+              {tab === "all" ? (
+                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-slate-900 text-white text-xs font-bold uppercase tracking-widest">
+                  All Agencies
+                </span>
+              ) : (
+                <span
+                  className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-white text-xs font-bold uppercase tracking-widest"
+                  style={{ backgroundColor: { DILG: "#0ea5e9", DepEd: "#f43f5e", DOH: "#dc2626", DPWH: "#f59e0b" }[tab] || "#334155" }}
+                >
+                  {DEPT_META[tab]?.long || tab} — only
+                </span>
+              )}
+              <span className="text-xs text-slate-500">
+                · {Math.min(projects.length, 600)} of {total.toLocaleString()} pins
+              </span>
+            </div>
+            {tab === "all" && (
+              <div className="flex items-center gap-3 text-[10px] uppercase tracking-widest text-slate-500 font-bold">
+                <span>Pin color:</span>
+                <LegendDot color="#0ea5e9" label="DILG" />
+                <LegendDot color="#f43f5e" label="DepEd" />
+                <LegendDot color="#dc2626" label="DOH" />
+                <LegendDot color="#f59e0b" label="DPWH" />
+              </div>
+            )}
+            {tab !== "all" && (
+              <div className="flex items-center gap-3 text-[10px] uppercase tracking-widest text-slate-500 font-bold">
+                <span>Pin color:</span>
+                <LegendDot color="#10b981" label="Green" />
+                <LegendDot color="#f59e0b" label="Yellow" />
+                <LegendDot color="#f97316" label="Orange" />
+                <LegendDot color="#ef4444" label="Red" />
+              </div>
+            )}
+          </div>
           <Card className="p-2 bg-white border-slate-200 overflow-hidden">
-            <ProjectMap projects={projects} publicMode height="450px" maxPins={600} />
+            <ProjectMap
+              projects={projects}
+              publicMode
+              height="450px"
+              maxPins={600}
+              colorMode={tab === "all" ? "department" : "alert"}
+            />
           </Card>
           <p className="text-xs text-slate-500 mt-2 text-center">
-            Showing <b>{Math.min(projects.length, 60)}</b> of <b>{total.toLocaleString()}</b> published projects
-            {tab !== "all" && <> in <b>{tab}</b></>}
-            {" "}· use search &amp; filters to narrow the list
+            Showing <b>{Math.min(projects.length, 60)}</b> project cards below
+            {tab !== "all" && <> — only <b>{tab}</b> projects</>}
+            {" "}· use search &amp; filters to narrow further
           </p>
         </section>
 
@@ -221,5 +287,14 @@ function PubStat({ icon: Icon, label, value, color, span2 }) {
       <div className="text-[10px] uppercase tracking-widest text-slate-500">{label}</div>
       <div className={`font-display text-2xl font-bold mt-1 ${color || "text-slate-900"}`}>{value}</div>
     </Card>
+  );
+}
+
+function LegendDot({ color, label }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: color }} />
+      <span className="text-slate-600">{label}</span>
+    </span>
   );
 }

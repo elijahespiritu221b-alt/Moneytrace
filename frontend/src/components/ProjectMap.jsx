@@ -3,9 +3,23 @@ import { Link } from "react-router-dom";
 import { ALERT, fmtPHP } from "../lib/api";
 import { AlertLevelChip } from "./AlertLevelChip";
 
-export function ProjectMap({ projects = [], center = [8.55, 124.65], zoom = 9, publicMode = false, height = "600px", maxPins = 800 }) {
+const DEPT_COLORS = {
+  DILG:  "#0ea5e9",   // sky
+  DepEd: "#f43f5e",   // rose
+  DOH:   "#dc2626",   // red
+  DPWH:  "#f59e0b",   // amber
+};
+
+export function ProjectMap({
+  projects = [],
+  center = [8.55, 124.65],
+  zoom = 9,
+  publicMode = false,
+  height = "600px",
+  maxPins = 800,
+  colorMode = "alert",  // "alert" | "department"
+}) {
   const linkBase = publicMode ? "/public/project" : "/console/projects";
-  // Cap markers for perf; when capped, prioritise higher-severity pins
   const order = { red: 0, orange: 1, yellow: 2, green: 3 };
   const capped = projects.length > maxPins
     ? [...projects].sort((a, b) => (order[a.flags?.alert_level || "green"] - order[b.flags?.alert_level || "green"])).slice(0, maxPins)
@@ -25,7 +39,9 @@ export function ProjectMap({ projects = [], center = [8.55, 124.65], zoom = 9, p
       />
       {capped.map((p) => {
         const level = p.flags?.alert_level || "green";
-        const c = ALERT[level].pin;
+        const c = colorMode === "department"
+          ? (DEPT_COLORS[p.department] || "#94a3b8")
+          : ALERT[level].pin;
         return (
           <CircleMarker
             key={p.id}
@@ -36,7 +52,7 @@ export function ProjectMap({ projects = [], center = [8.55, 124.65], zoom = 9, p
             <Popup>
               <div className="text-xs space-y-1 min-w-[220px]">
                 <div className="font-semibold text-sm">{p.title}</div>
-                <div className="opacity-70">{p.municipality} · {p.project_type}</div>
+                <div className="opacity-70">{p.department ? `${p.department} · ` : ""}{p.municipality} · {p.project_type}</div>
                 <AlertLevelChip level={level} size="xs" />
                 <div className="pt-1 font-mono">{fmtPHP(p.current_budget)}</div>
                 <Link
