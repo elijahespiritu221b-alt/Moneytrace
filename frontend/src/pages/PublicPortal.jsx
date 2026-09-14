@@ -69,8 +69,10 @@ export default function PublicPortal() {
           {overview && (
             <div className="lg:col-span-2 grid grid-cols-2 gap-3">
               <PubStat icon={Landmark} label="Projects" value={overview.total_projects.toLocaleString()} />
-              <PubStat icon={TrendingUp} label="Total Budget" value={fmtPHP(overview.total_budget_php)} span2 />
               <PubStat label="Green" value={overview.alert_counts.green.toLocaleString()} color="text-emerald-600" />
+              <PubStat label="Original Budget" value={fmtPHP(overview.original_budget_php || 0)} />
+              <PubStat label="Current Budget" value={fmtPHP(overview.total_budget_php)} color="text-slate-900" />
+              <PubStat label="Total Increase" value={fmtPHP(overview.budget_increase_php || 0)} color="text-amber-700" />
               <PubStat label="Alerts (Y/O/R)" value={(overview.alert_counts.yellow + overview.alert_counts.orange + overview.alert_counts.red).toLocaleString()} color="text-amber-700" />
             </div>
           )}
@@ -116,10 +118,20 @@ export default function PublicPortal() {
                     <div className="text-[10px] uppercase tracking-widest text-slate-500">Projects</div>
                     <div className="font-mono text-xl font-bold text-slate-900">{active.count.toLocaleString()}</div>
                   </div>
-                  <div>
-                    <div className="text-[10px] uppercase tracking-widest text-slate-500">Total Budget</div>
-                    <div className="font-mono text-base font-bold text-slate-900">{fmtPHP(active.total_budget)}</div>
-                  </div>
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-3 gap-3">
+                <div className="p-3 rounded-md bg-slate-50 border border-slate-200">
+                  <div className="text-[10px] uppercase tracking-widest text-slate-500">Original Budget</div>
+                  <div className="font-mono text-sm font-bold text-slate-900 mt-1">{fmtPHP(active.original_budget || 0)}</div>
+                </div>
+                <div className="p-3 rounded-md bg-slate-50 border border-slate-200">
+                  <div className="text-[10px] uppercase tracking-widest text-slate-500">Current Budget</div>
+                  <div className="font-mono text-sm font-bold text-slate-900 mt-1">{fmtPHP(active.total_budget)}</div>
+                </div>
+                <div className="p-3 rounded-md bg-amber-50 border border-amber-200">
+                  <div className="text-[10px] uppercase tracking-widest text-amber-700">Total Increase</div>
+                  <div className="font-mono text-sm font-bold text-amber-800 mt-1">{fmtPHP(active.budget_increase || 0)}</div>
                 </div>
               </div>
               <div className="mt-4 grid grid-cols-4 gap-3">

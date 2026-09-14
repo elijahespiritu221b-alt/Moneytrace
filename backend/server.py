@@ -434,6 +434,7 @@ async def analytics_by_office(user: dict = Depends(get_current_user)):
             "office_agency": agency,
             "count": 0,
             "total_budget": 0.0,
+            "original_budget": 0.0,
             "total_disbursed": 0.0,
             "alert_counts": {"green": 0, "yellow": 0, "orange": 0, "red": 0},
             "flag_counts": {"F1": 0, "F2": 0, "F3": 0, "F4": 0, "F5": 0, "F6": 0},
@@ -441,6 +442,7 @@ async def analytics_by_office(user: dict = Depends(get_current_user)):
         })
         b["count"] += 1
         b["total_budget"] += float(p.get("current_budget", 0))
+        b["original_budget"] += float(p.get("approved_budget", 0))
         b["total_disbursed"] += float(p.get("disbursed_amount", 0))
         b["municipalities"].add(p.get("municipality", ""))
         f = fby.get(p["id"], {})
@@ -450,6 +452,7 @@ async def analytics_by_office(user: dict = Depends(get_current_user)):
     out = []
     for k, v in by_office.items():
         v["municipality_count"] = len(v["municipalities"])
+        v["budget_increase"] = v["total_budget"] - v["original_budget"]
         del v["municipalities"]
         out.append(v)
     out.sort(key=lambda x: -(x["alert_counts"]["red"] * 100 + x["alert_counts"]["orange"] * 10 + x["alert_counts"]["yellow"]))
@@ -467,6 +470,7 @@ async def analytics_overview(user: dict = Depends(get_current_user)):
     by_muni = {"green": {}, "yellow": {}, "orange": {}, "red": {}}
     status_counts = {}
     total_budget = 0.0
+    original_budget = 0.0
     for p in projects:
         f = by_id.get(p["id"], {})
         al = f.get("alert_level", "green")
@@ -477,9 +481,12 @@ async def analytics_overview(user: dict = Depends(get_current_user)):
         by_muni[al][p["municipality"]] = by_muni[al].get(p["municipality"], 0) + 1
         status_counts[p["status"]] = status_counts.get(p["status"], 0) + 1
         total_budget += float(p.get("current_budget", 0))
+        original_budget += float(p.get("approved_budget", 0))
     return {
         "total_projects": len(projects),
         "total_budget_php": total_budget,
+        "original_budget_php": original_budget,
+        "budget_increase_php": total_budget - original_budget,
         "alert_counts": alert_counts,
         "flag_counts": flag_counts,
         "by_agency": [{"agency": k, "budget": v} for k, v in sorted(by_agency.items(), key=lambda x: -x[1])],
@@ -519,13 +526,17 @@ async def public_departments():
     for p in projects:
         d = p.get("department") or "Other"
         b = dep.setdefault(d, {
-            "department": d, "count": 0, "total_budget": 0.0,
+            "department": d, "count": 0,
+            "total_budget": 0.0, "original_budget": 0.0,
             "alert_counts": {"green": 0, "yellow": 0, "orange": 0, "red": 0},
         })
         b["count"] += 1
         b["total_budget"] += float(p.get("current_budget", 0))
+        b["original_budget"] += float(p.get("approved_budget", 0))
         lv = fby.get(p["id"], {}).get("alert_level", "green")
         b["alert_counts"][lv] = b["alert_counts"].get(lv, 0) + 1
+    for b in dep.values():
+        b["budget_increase"] = b["total_budget"] - b["original_budget"]
     order = {"DILG": 0, "DepEd": 1, "DOH": 2, "DPWH": 3}
     return sorted(dep.values(), key=lambda x: order.get(x["department"], 99))
 
@@ -546,15 +557,19 @@ async def public_overview():
     by_id = {f["project_id"]: f for f in flags}
     alert_counts = {"green": 0, "yellow": 0, "orange": 0, "red": 0}
     total_budget = 0.0
+    original_budget = 0.0
     by_agency = {}
     for p in projects:
         al = by_id.get(p["id"], {}).get("alert_level", "green")
         alert_counts[al] += 1
         total_budget += float(p.get("current_budget", 0))
+        original_budget += float(p.get("approved_budget", 0))
         by_agency[p["agency"]] = by_agency.get(p["agency"], 0) + float(p.get("current_budget", 0))
     return {
         "total_projects": len(projects),
         "total_budget_php": total_budget,
+        "original_budget_php": original_budget,
+        "budget_increase_php": total_budget - original_budget,
         "alert_counts": alert_counts,
         "by_agency": [{"agency": k, "budget": v} for k, v in sorted(by_agency.items(), key=lambda x: -x[1])],
     }

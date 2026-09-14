@@ -29,10 +29,17 @@ export default function Dashboard() {
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard icon={Layers} label="Total Projects" value={data.total_projects} testid="stat-projects" />
-          <StatCard icon={Landmark} label="Total Budget (PHP)" value={fmtPHP(data.total_budget_php)} testid="stat-budget" />
+          <StatCard icon={Layers} label="Total Projects" value={data.total_projects.toLocaleString()} testid="stat-projects" />
+          <StatCard icon={Landmark} label="Original Budget" value={fmtPHP(data.original_budget_php || 0)} testid="stat-original" />
+          <StatCard icon={Landmark} label="Current Budget" value={fmtPHP(data.total_budget_php)} testid="stat-budget" />
+          <StatCard icon={TrendingUp} label="Total Increase" value={fmtPHP(data.budget_increase_php || 0)} tint="text-amber-400" testid="stat-increase" />
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard icon={AlertTriangle} label="Red + Orange" value={data.alert_counts.red + data.alert_counts.orange} tint="text-red-400" testid="stat-critical" />
-          <StatCard icon={TrendingUp} label="Green (Low Risk)" value={data.alert_counts.green} tint="text-emerald-400" testid="stat-green" />
+          <StatCard icon={TrendingUp} label="Green (Low Risk)" value={data.alert_counts.green.toLocaleString()} tint="text-emerald-400" testid="stat-green" />
+          <StatCard icon={AlertTriangle} label="Yellow" value={data.alert_counts.yellow.toLocaleString()} tint="text-amber-400" testid="stat-yellow" />
+          <StatCard icon={AlertTriangle} label="Orange" value={data.alert_counts.orange.toLocaleString()} tint="text-orange-400" testid="stat-orange" />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

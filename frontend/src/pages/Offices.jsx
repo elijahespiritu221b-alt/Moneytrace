@@ -130,16 +130,20 @@ export default function Offices() {
                     <div className="font-mono text-lg text-slate-100">{r.count.toLocaleString()}</div>
                   </div>
                   <div>
-                    <div className="text-[10px] uppercase tracking-widest text-slate-500">Current Budget</div>
-                    <div className="font-mono text-sm text-slate-100">{fmtPHP(r.total_budget)}</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] uppercase tracking-widest text-slate-500">Disbursed</div>
-                    <div className="font-mono text-sm text-slate-300">{fmtPHP(r.total_disbursed)}</div>
-                  </div>
-                  <div>
                     <div className="text-[10px] uppercase tracking-widest text-slate-500">Municipalities</div>
-                    <div className="font-mono text-sm text-slate-300">{r.municipality_count}</div>
+                    <div className="font-mono text-lg text-slate-100">{r.municipality_count}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-widest text-slate-500">Original Budget</div>
+                    <div className="font-mono text-xs text-slate-300">{fmtPHP(r.original_budget || 0)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-widest text-slate-500">Current Budget</div>
+                    <div className="font-mono text-xs text-slate-100">{fmtPHP(r.total_budget)}</div>
+                  </div>
+                  <div className="col-span-2 flex items-center justify-between p-2 rounded bg-amber-500/10 border border-amber-500/30">
+                    <span className="text-[10px] uppercase tracking-widest text-amber-400 font-bold">Total Increase</span>
+                    <span className="font-mono text-xs text-amber-200">{fmtPHP(r.budget_increase || 0)}</span>
                   </div>
                 </div>
 
