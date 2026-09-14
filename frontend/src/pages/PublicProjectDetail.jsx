@@ -7,6 +7,7 @@ import { FlagChip, FlagRow } from "../components/FlagChip";
 import { Card } from "../components/ui/card";
 import { MapContainer, TileLayer, CircleMarker } from "react-leaflet";
 import { ArrowLeft, MapPin, Building2 } from "lucide-react";
+import { ComplaintForm } from "../components/ComplaintForm";
 
 export default function PublicProjectDetail() {
   const { id } = useParams();
@@ -71,6 +72,10 @@ export default function PublicProjectDetail() {
             <CircleMarker center={[p.location.lat, p.location.lng]} radius={12} pathOptions={{ color: "#059669", fillOpacity: 0.6 }} />
           </MapContainer>
         </Card>
+
+        <div className="pt-6 border-t-2 border-slate-200">
+          <ComplaintForm projectId={p.id} projectTitle={p.title} />
+        </div>
       </div>
     </PublicLayout>
   );

@@ -9,6 +9,7 @@ import RuleConfig from "./pages/RuleConfig";
 import AuditLog from "./pages/AuditLog";
 import ChangeRequests from "./pages/ChangeRequests";
 import Offices from "./pages/Offices";
+import Complaints from "./pages/Complaints";
 import PublicPortal from "./pages/PublicPortal";
 import PublicProjectDetail from "./pages/PublicProjectDetail";
 
@@ -35,6 +36,7 @@ function App() {
           <Route path="/console/projects" element={<Protected><Projects /></Protected>} />
           <Route path="/console/projects/:id" element={<Protected><ProjectDetail /></Protected>} />
           <Route path="/console/requests" element={<Protected><ChangeRequests /></Protected>} />
+          <Route path="/console/complaints" element={<Protected><Complaints /></Protected>} />
           <Route path="/console/audit" element={<Protected><AuditLog /></Protected>} />
           <Route path="/console/rules" element={<Protected role="admin"><RuleConfig /></Protected>} />
           <Route path="*" element={<Navigate to="/public" replace />} />

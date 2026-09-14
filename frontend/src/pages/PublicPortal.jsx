@@ -9,7 +9,8 @@ import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { Landmark, MapPin, TrendingUp, Search, Building2 } from "lucide-react";
+import { Landmark, MapPin, TrendingUp, Search, Building2, Megaphone } from "lucide-react";
+import { ComplaintForm } from "../components/ComplaintForm";
 
 const DEPT_META = {
   DILG:  { long: "Department of the Interior and Local Government", accent: "border-sky-500 text-sky-700",       ring: "ring-sky-200" },
@@ -275,6 +276,16 @@ export default function PublicPortal() {
               </Card>
             </Link>
           ))}
+        </section>
+
+        {/* Complaint / Report section */}
+        <section id="report" className="pt-6 border-t-2 border-slate-200">
+          <div className="mb-4 flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-widest text-amber-700 font-bold px-2 py-0.5 rounded bg-amber-100 border border-amber-300 inline-flex items-center gap-1">
+              <Megaphone className="w-3 h-3" /> Citizen Reporting
+            </span>
+          </div>
+          <ComplaintForm />
         </section>
       </div>
     </PublicLayout>

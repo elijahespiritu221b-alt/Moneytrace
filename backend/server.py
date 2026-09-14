@@ -575,6 +575,94 @@ async def public_overview():
     }
 
 
+# ---------- Public Complaints ----------
+class ComplaintCreate(BaseModel):
+    project_id: Optional[str] = None
+    category: str  # "Financial" | "Delay" | "Quality" | "Missing progress" | "Other"
+    title: str
+    description: str
+    submitter_name: Optional[str] = None
+    submitter_email: Optional[str] = None
+    submitter_contact: Optional[str] = None
+    anonymous: bool = False
+
+
+@api.post("/public/complaints")
+async def submit_complaint(body: ComplaintCreate, request: Request):
+    if len(body.title.strip()) < 5:
+        raise HTTPException(400, "Title must be at least 5 characters.")
+    if len(body.description.strip()) < 20:
+        raise HTTPException(400, "Please provide at least 20 characters of description.")
+    entry = {
+        "id": gen_id(),
+        "created_at": now_utc().isoformat(),
+        "project_id": body.project_id,
+        "category": body.category,
+        "title": body.title.strip(),
+        "description": body.description.strip(),
+        "submitter_name": None if body.anonymous else (body.submitter_name or None),
+        "submitter_email": None if body.anonymous else (body.submitter_email or None),
+        "submitter_contact": None if body.anonymous else (body.submitter_contact or None),
+        "anonymous": bool(body.anonymous),
+        "status": "new",  # new | under_review | resolved | dismissed
+        "reviewer_notes": "",
+        "reviewer_email": None,
+        "decided_at": None,
+        "ip_hint": (request.client.host if request.client else "unknown")[:32],
+    }
+    # Auto-link project reference if given
+    if body.project_id:
+        p = await db.projects.find_one({"id": body.project_id}, {"_id": 0, "title": 1, "agency": 1})
+        if p:
+            entry["project_title"] = p.get("title")
+            entry["project_agency"] = p.get("agency")
+    await db.complaints.insert_one(entry)
+    await _log_audit("COMPLAINT_FILED", project_id=body.project_id,
+                     note=f"Public complaint: {body.category} — {body.title[:80]}")
+    return {"ok": True, "id": entry["id"]}
+
+
+@api.get("/complaints")
+async def list_complaints(status: Optional[str] = None, user: dict = Depends(get_current_user)):
+    q = {"status": status} if status else {}
+    return await db.complaints.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+
+class ComplaintDecision(BaseModel):
+    status: str  # under_review | resolved | dismissed
+    notes: Optional[str] = ""
+
+
+@api.patch("/complaints/{cid}")
+async def decide_complaint(cid: str, body: ComplaintDecision, user: dict = Depends(get_current_user)):
+    if body.status not in ("under_review", "resolved", "dismissed", "new"):
+        raise HTTPException(400, "Invalid status.")
+    c = await db.complaints.find_one({"id": cid}, {"_id": 0})
+    if not c:
+        raise HTTPException(404, "Complaint not found")
+    await db.complaints.update_one(
+        {"id": cid},
+        {"$set": {
+            "status": body.status,
+            "reviewer_notes": body.notes or "",
+            "reviewer_email": user["email"],
+            "decided_at": now_utc().isoformat(),
+        }},
+    )
+    await _log_audit(f"COMPLAINT_{body.status.upper()}", actor=user,
+                     project_id=c.get("project_id"),
+                     note=body.notes or f"Complaint {cid[:8]}: {body.status}")
+    return {"ok": True}
+
+
+@api.get("/complaints/stats")
+async def complaints_stats(user: dict = Depends(get_current_user)):
+    counts = {"new": 0, "under_review": 0, "resolved": 0, "dismissed": 0}
+    async for c in db.complaints.find({}, {"status": 1}):
+        counts[c.get("status", "new")] = counts.get(c.get("status", "new"), 0) + 1
+    return counts
+
+
 # ---------- Health ----------
 @api.get("/")
 async def root():

@@ -1,7 +1,7 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/auth-context";
 import { Button } from "./ui/button";
-import { LayoutDashboard, ListTree, Map, Sliders, ScrollText, LogOut, ShieldCheck, Globe, Inbox, Building2 } from "lucide-react";
+import { LayoutDashboard, ListTree, Map, Sliders, ScrollText, LogOut, ShieldCheck, Globe, Inbox, Building2, Megaphone } from "lucide-react";
 
 export function ConsoleLayout({ children }) {
   const { user, logout } = useAuth();
@@ -11,6 +11,7 @@ export function ConsoleLayout({ children }) {
     { to: "/console/offices", icon: Building2, label: "DILG Offices", testid: "nav-offices" },
     { to: "/console/projects", icon: ListTree, label: "Projects", testid: "nav-projects" },
     { to: "/console/requests", icon: Inbox, label: "Change Requests", testid: "nav-requests" },
+    { to: "/console/complaints", icon: Megaphone, label: "Complaints", testid: "nav-complaints" },
     { to: "/console/audit", icon: ScrollText, label: "Audit Trail", testid: "nav-audit" },
   ];
   if (user?.role === "admin") {
