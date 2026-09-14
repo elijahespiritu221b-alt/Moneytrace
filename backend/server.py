@@ -575,6 +575,37 @@ async def public_overview():
     }
 
 
+@api.get("/analytics/monitoring-units")
+async def analytics_monitoring_units(office_code: Optional[str] = None,
+                                     user: dict = Depends(get_current_user)):
+    """Group projects by monitoring unit type + specific unit value, per office."""
+    q = {"office_code": office_code} if office_code else {}
+    projects = await db.projects.find(q, {"_id": 0}).to_list(20000)
+    flags = await db.project_flags.find({}, {"_id": 0}).to_list(20000)
+    fby = {f["project_id"]: f for f in flags}
+    out = {}
+    for p in projects:
+        oc = p.get("office_code") or "OTHER"
+        ut = p.get("monitoring_unit_type") or "Monitoring Unit"
+        uv = p.get("monitoring_unit") or "General"
+        key = (oc, ut, uv)
+        b = out.setdefault(key, {
+            "office_code": oc,
+            "monitoring_unit_type": ut,
+            "monitoring_unit": uv,
+            "count": 0,
+            "total_budget": 0.0,
+            "alert_counts": {"green": 0, "yellow": 0, "orange": 0, "red": 0},
+        })
+        b["count"] += 1
+        b["total_budget"] += float(p.get("current_budget", 0))
+        lv = fby.get(p["id"], {}).get("alert_level", "green")
+        b["alert_counts"][lv] = b["alert_counts"].get(lv, 0) + 1
+    rows = sorted(out.values(),
+                  key=lambda x: -(x["alert_counts"]["red"] * 100 + x["alert_counts"]["orange"] * 10))
+    return rows
+
+
 # ---------- Public Complaints ----------
 class ComplaintCreate(BaseModel):
     project_id: Optional[str] = None

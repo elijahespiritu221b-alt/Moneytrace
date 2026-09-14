@@ -62,6 +62,7 @@ export default function Offices() {
   }, [rows]);
 
   const openOffice = (agency) => nav(`/console/projects?agency=${encodeURIComponent(agency)}`);
+  const openUnits = (code, ev) => { ev.stopPropagation(); nav(`/console/offices/${code}/units`); };
 
   return (
     <ConsoleLayout>
@@ -172,13 +173,18 @@ export default function Offices() {
                   </div>
                 </div>
 
-                <div className="mt-4 flex flex-wrap gap-1">
+                <div className="mt-4 flex flex-wrap gap-1 items-center">
                   {["F1", "F2", "F3", "F4", "F5", "F6"].map((c) => (
                     <div key={c} className="flex items-center gap-1">
                       <FlagChip code={c} active={r.flag_counts[c] > 0} />
                       <span className="text-[10px] font-mono text-slate-500">{r.flag_counts[c]}</span>
                     </div>
                   ))}
+                  <button onClick={(ev) => openUnits(r.office_code, ev)}
+                          data-testid={`office-units-${r.office_code}`}
+                          className="ml-auto text-[10px] uppercase tracking-widest font-bold text-sky-400 hover:text-sky-300 border border-sky-500/40 rounded px-2 py-1 hover:bg-sky-500/10">
+                    View Monitoring Units →
+                  </button>
                 </div>
               </button>
             );

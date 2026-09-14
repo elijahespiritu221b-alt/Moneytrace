@@ -119,6 +119,9 @@ export default function ProjectDetail() {
                   <KV label="Current" value={fmtPHP(project.current_budget)} tint={project.current_budget > project.approved_budget ? "text-amber-400" : ""} />
                   <KV label="Disbursed" value={fmtPHP(project.disbursed_amount)} />
                   <KV label="Cost/Unit" value={`${fmtPHP(project.cost_per_unit)} ${project.unit_metric || ""}`} />
+                  <KV label="Organizational Unit" value={project.monitoring_unit || project.organizational_unit || "—"} />
+                  <KV label="Monitoring Unit Type" value={project.monitoring_unit_type || "—"} />
+                  <KV label="Region" value={project.region || "Region X"} />
                   <KV label="Contractor" value={project.contractor} />
                   <KV label="Start" value={fmtDate(project.start_date)} />
                   <KV label="End" value={fmtDate(project.end_date)} />
