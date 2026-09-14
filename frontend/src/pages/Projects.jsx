@@ -80,14 +80,16 @@ export default function Projects() {
           </div>
         </Card>
 
-        <div className="hidden lg:grid grid-cols-12 gap-4">
-          <div className="col-span-8 min-w-0">
-            <ProjectTable projects={projects} onOpen={(id) => nav(`/console/projects/${id}`)} loading={loading} />
-          </div>
-          <div className="col-span-4">
-            <div className="sticky top-40">
-              <ProjectMap projects={projects} height="calc(100vh - 220px)" />
+        <div className="hidden lg:block space-y-4">
+          <ProjectTable projects={projects} onOpen={(id) => nav(`/console/projects/${id}`)} loading={loading} />
+          <div>
+            <div className="mb-2 flex items-center gap-2">
+              <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Map showing</span>
+              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-slate-900 text-white text-xs font-bold uppercase tracking-widest border border-slate-700">
+                {projects.length} project{projects.length !== 1 ? "s" : ""} on current filters
+              </span>
             </div>
+            <ProjectMap projects={projects} height="560px" />
           </div>
         </div>
 
