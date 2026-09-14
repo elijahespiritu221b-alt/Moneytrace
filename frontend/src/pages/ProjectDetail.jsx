@@ -10,7 +10,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "../components/ui/dialog";
-import { Sparkles, ArrowLeft, MapPin, Calendar, Building2, ClipboardEdit, CheckCircle2, Loader2 } from "lucide-react";
+import { Sparkles, ArrowLeft, MapPin, Calendar, Building2, ClipboardEdit, CheckCircle2, Loader2, FileDown } from "lucide-react";
 import { toast } from "sonner";
 import { MapContainer, TileLayer, CircleMarker } from "react-leaflet";
 
@@ -49,6 +49,14 @@ export default function ProjectDetail() {
     load();
   };
 
+  const downloadMemo = () => {
+    const token = localStorage.getItem("mt_token");
+    const base = process.env.REACT_APP_BACKEND_URL;
+    const url = `${base}/api/projects/${id}/memo.pdf?token=${encodeURIComponent(token || "")}`;
+    window.open(url, "_blank");
+    toast.success("PDF Case Memo generated");
+  };
+
   if (!project) return <ConsoleLayout><div className="text-slate-400">Loading project…</div></ConsoleLayout>;
   const f = project.flags || {};
 
@@ -74,6 +82,9 @@ export default function ProjectDetail() {
           <div className="flex flex-col items-end gap-2">
             <AlertLevelChip level={f.alert_level || "green"} size="lg" />
             <div className="text-[11px] uppercase tracking-widest text-slate-500">Core count · {f.core_count || 0}</div>
+            <Button onClick={downloadMemo} size="sm" className="mt-2 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700" data-testid="btn-download-memo">
+              <FileDown className="w-4 h-4 mr-1.5" /> PDF Case Memo
+            </Button>
           </div>
         </div>
 

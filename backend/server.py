@@ -26,6 +26,9 @@ from auth import (
 from flag_engine import compute_all_flags, compute_flags_for, _mean_cost_by_type
 from seed_data import build_seed_projects
 import ai_service
+from pdf_memo import render_case_memo
+from fastapi.responses import StreamingResponse
+from io import BytesIO
 
 
 # ---------- DB ----------
@@ -186,6 +189,39 @@ async def get_project(pid: str, user: dict = Depends(get_current_user)):
         raise HTTPException(404, "Project not found")
     f = await db.project_flags.find_one({"project_id": pid}, {"_id": 0}) or {}
     return {**p, "flags": f}
+
+
+@api.get("/projects/{pid}/memo.pdf")
+async def project_memo_pdf(pid: str, request: Request):
+    """Case memo PDF: project detail + flags + AI advisory (latest) + audit trail.
+    Auth accepted via cookie, Authorization header, or ?token= query param
+    (needed for direct <a href> downloads in the browser)."""
+    token = request.cookies.get("access_token")
+    if not token:
+        h = request.headers.get("Authorization", "")
+        if h.startswith("Bearer "): token = h[7:]
+    if not token:
+        token = request.query_params.get("token")
+    if not token:
+        raise HTTPException(401, "Not authenticated")
+    from auth import _decode
+    payload = _decode(token)
+    if payload.get("type") != "access":
+        raise HTTPException(401, "Invalid token type")
+    p = await db.projects.find_one({"id": pid}, {"_id": 0})
+    if not p:
+        raise HTTPException(404, "Project not found")
+    flags = await db.project_flags.find_one({"project_id": pid}, {"_id": 0}) or {}
+    audit = await db.audit_logs.find({"project_id": pid}, {"_id": 0}).sort("timestamp", -1).to_list(500)
+    ai_reviews = await db.ai_reviews.find({"project_id": pid}, {"_id": 0}).sort("created_at", -1).to_list(5)
+    pdf_bytes = render_case_memo(p, flags, audit, ai_reviews)
+    safe_title = "".join(c if c.isalnum() or c in "-_ " else "_" for c in (p.get("title", "project"))).strip()[:60]
+    filename = f"MONEYTRACE_Memo_{safe_title}_{pid[:8]}.pdf"
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 class ProjectPatch(BaseModel):
