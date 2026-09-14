@@ -1,58 +1,105 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, fmtPHP } from "../lib/api";
 import { ConsoleLayout } from "../components/Layout";
 import { Card } from "../components/ui/card";
+import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { AlertLevelChip } from "../components/AlertLevelChip";
 import { FlagChip } from "../components/FlagChip";
 import { Building2, ChevronRight, AlertTriangle } from "lucide-react";
 
-// Full-name lookup for the 12 DILG offices
+// Metadata for every office (12 DILG + 3 standalone departments)
 const OFFICE_META = {
-  BLGS:     { long: "Bureau of Local Government Supervision",     tint: "from-sky-500/10 to-sky-500/0" },
-  BLGD:     { long: "Bureau of Local Government Development",     tint: "from-indigo-500/10 to-indigo-500/0" },
-  NBOO:     { long: "National Barangay Operations Office",        tint: "from-cyan-500/10 to-cyan-500/0" },
-  OPDS:     { long: "Office of Project Development Services",     tint: "from-teal-500/10 to-teal-500/0" },
-  PNP:      { long: "Philippine National Police",                 tint: "from-blue-500/10 to-blue-500/0" },
-  BFP:      { long: "Bureau of Fire Protection",                  tint: "from-orange-500/10 to-orange-500/0" },
-  BJMP:     { long: "Bureau of Jail Management and Penology",     tint: "from-slate-500/10 to-slate-500/0" },
-  NAPOLCOM: { long: "National Police Commission",                 tint: "from-violet-500/10 to-violet-500/0" },
-  PPSC:     { long: "Philippine Public Safety College",           tint: "from-emerald-500/10 to-emerald-500/0" },
-  LGA:      { long: "Local Government Academy",                   tint: "from-purple-500/10 to-purple-500/0" },
-  NYC:      { long: "National Youth Commission",                  tint: "from-pink-500/10 to-pink-500/0" },
-  NCMF:     { long: "National Commission on Muslim Filipinos",    tint: "from-amber-500/10 to-amber-500/0" },
+  // DILG
+  BLGS:     { long: "Bureau of Local Government Supervision",     dept: "DILG",  tint: "from-sky-500/10 to-sky-500/0" },
+  BLGD:     { long: "Bureau of Local Government Development",     dept: "DILG",  tint: "from-indigo-500/10 to-indigo-500/0" },
+  NBOO:     { long: "National Barangay Operations Office",        dept: "DILG",  tint: "from-cyan-500/10 to-cyan-500/0" },
+  OPDS:     { long: "Office of Project Development Services",     dept: "DILG",  tint: "from-teal-500/10 to-teal-500/0" },
+  PNP:      { long: "Philippine National Police",                 dept: "DILG",  tint: "from-blue-500/10 to-blue-500/0" },
+  BFP:      { long: "Bureau of Fire Protection",                  dept: "DILG",  tint: "from-orange-500/10 to-orange-500/0" },
+  BJMP:     { long: "Bureau of Jail Management and Penology",     dept: "DILG",  tint: "from-slate-500/10 to-slate-500/0" },
+  NAPOLCOM: { long: "National Police Commission",                 dept: "DILG",  tint: "from-violet-500/10 to-violet-500/0" },
+  PPSC:     { long: "Philippine Public Safety College",           dept: "DILG",  tint: "from-emerald-500/10 to-emerald-500/0" },
+  LGA:      { long: "Local Government Academy",                   dept: "DILG",  tint: "from-purple-500/10 to-purple-500/0" },
+  NYC:      { long: "National Youth Commission",                  dept: "DILG",  tint: "from-pink-500/10 to-pink-500/0" },
+  NCMF:     { long: "National Commission on Muslim Filipinos",    dept: "DILG",  tint: "from-amber-500/10 to-amber-500/0" },
+  // Standalone departments
+  DEPED:    { long: "Department of Education",                    dept: "DepEd", tint: "from-rose-500/10 to-rose-500/0" },
+  DOH:      { long: "Department of Health",                       dept: "DOH",   tint: "from-red-500/10 to-red-500/0" },
+  DPWH:     { long: "Department of Public Works and Highways",    dept: "DPWH",  tint: "from-yellow-500/10 to-yellow-500/0" },
 };
+
+const TABS = [
+  { key: "all",   label: "All Agencies" },
+  { key: "DILG",  label: "DILG (12 offices)" },
+  { key: "DepEd", label: "DepEd" },
+  { key: "DOH",   label: "DOH" },
+  { key: "DPWH",  label: "DPWH" },
+];
 
 export default function Offices() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState("all");
   const nav = useNavigate();
 
   useEffect(() => {
     api.get("/analytics/by-office").then((r) => { setRows(r.data); setLoading(false); });
   }, []);
 
-  const openOffice = (agency) => {
-    nav(`/console/projects?agency=${encodeURIComponent(agency)}`);
-  };
+  const filtered = useMemo(() => {
+    if (tab === "all") return rows;
+    return rows.filter((r) => (OFFICE_META[r.office_code]?.dept || "DILG") === tab);
+  }, [rows, tab]);
+
+  const dept_totals = useMemo(() => {
+    const acc = { DILG: 0, DepEd: 0, DOH: 0, DPWH: 0 };
+    rows.forEach((r) => {
+      const d = OFFICE_META[r.office_code]?.dept || "DILG";
+      acc[d] = (acc[d] || 0) + r.count;
+    });
+    return acc;
+  }, [rows]);
+
+  const openOffice = (agency) => nav(`/console/projects?agency=${encodeURIComponent(agency)}`);
 
   return (
     <ConsoleLayout>
       <div className="space-y-6">
         <div>
           <h1 className="font-display text-3xl font-bold flex items-center gap-2">
-            <Building2 className="w-6 h-6 text-sky-400" /> DILG Offices
+            <Building2 className="w-6 h-6 text-sky-400" /> Agencies & Offices
           </h1>
           <p className="text-slate-400 text-sm mt-1">
-            12 Department of the Interior and Local Government offices — ranked by triage load (Red · Orange · Yellow).
+            15 offices across 4 departments — DILG (12 sub-offices), DepEd, DOH, DPWH · ranked by triage load.
           </p>
         </div>
+
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList className="bg-slate-800 border border-slate-700">
+            {TABS.map((t) => (
+              <TabsTrigger
+                key={t.key}
+                value={t.key}
+                data-testid={`dept-tab-${t.key}`}
+                className="data-[state=active]:bg-sky-500 data-[state=active]:text-slate-950"
+              >
+                {t.label}
+                {t.key !== "all" && dept_totals[t.key] !== undefined && (
+                  <span className="ml-2 text-[10px] font-mono opacity-70">
+                    ({dept_totals[t.key].toLocaleString()})
+                  </span>
+                )}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
 
         {loading && <div className="text-slate-400">Loading office breakdown…</div>}
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {rows.map((r, idx) => {
-            const meta = OFFICE_META[r.office_code] || { long: r.office_agency, tint: "from-slate-500/10 to-slate-500/0" };
+          {filtered.map((r, idx) => {
+            const meta = OFFICE_META[r.office_code] || { long: r.office_agency, tint: "from-slate-500/10 to-slate-500/0", dept: "—" };
             const critical = r.alert_counts.red + r.alert_counts.orange;
             return (
               <button
@@ -63,10 +110,13 @@ export default function Offices() {
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Rank #{idx + 1}</span>
                       <span className="text-[10px] font-bold uppercase tracking-widest text-sky-400 border border-sky-500/40 rounded px-1.5 py-0.5 font-mono">
                         {r.office_code}
+                      </span>
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 border border-slate-700 rounded px-1.5 py-0.5">
+                        {meta.dept}
                       </span>
                     </div>
                     <h3 className="font-display text-base font-semibold text-slate-100 mt-2 leading-tight">{meta.long}</h3>
