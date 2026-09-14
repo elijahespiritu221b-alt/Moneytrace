@@ -1,0 +1,138 @@
+{
+  "project_name": "MONEYTRACE - Cagayan de Oro City & Misamis Oriental Public Expenditure Screening & AI Advisory Portal",
+  "app_type": "hybrid_fullstack",
+  "archetype": "SWISS_GOV_PRECISION",
+  "design_philosophy": {
+    "identity": "Government-grade civic tech intelligence console with high visual authority, density, and institutional clarity.",
+    "dual_experience": {
+      "internal_console": "Dark Slate Command Hub (Slate 950 / Slate 900 base, crisp border lines, high-density data matrices, status-driven alert chips, dedicated Claude AI Advisory drawer). Designed for fast triage, audit verification, and rule-threshold management.",
+      "public_portal": "Warm Civic Transparency Portal (Slate 50 / Warm Off-White base, Emerald & Gold civic trust accents, clear visual indicator banner 'Flags are screening indicators, not proof of wrongdoing', read-only open contracting cards)."
+    },
+    "principles": [
+      "Fusion over Imitation: Swiss editorial typography meets dense Bloomberg-style audit tracking and clean civic GIS map visuals.",
+      "Restrained Alert Palette: Gray/Slate background with muted alert surfaces; bright colors (Green, Yellow, Orange, Red) used ONLY on dedicated indicator chips, status badges, and map markers.",
+      "Density with Scannability: Sticky filter headers, zero-waste table cells, fixed column widths, optical alignment, subgrid layouts.",
+      "AI Transparency: Claude Advisory responses clearly marked with Sparkle/Advisory badge and distinct backdrop tint to separate human record from AI narrative context."
+    ]
+  },
+  "typography": {
+    "heading_font": "Cabinet Grotesk, Outfit, sans-serif",
+    "body_font": "DM Sans, Inter, sans-serif",
+    "mono_font": "JetBrains Mono, IBM Plex Mono, monospace",
+    "scale": {
+      "h1_hero": "text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight leading-tight",
+      "h2_section": "text-xl sm:text-2xl lg:text-3xl font-semibold tracking-tight",
+      "h3_card": "text-lg sm:text-xl font-medium tracking-tight",
+      "h4_sub": "text-base font-semibold",
+      "body_regular": "text-sm leading-relaxed",
+      "body_dense": "text-xs sm:text-sm leading-normal",
+      "mono_data": "font-mono text-xs tracking-wide",
+      "chip_label": "text-[11px] font-bold uppercase tracking-wider"
+    }
+  },
+  "colors": {
+    "internal_console": {
+      "bg_primary": "#0B0F17",
+      "bg_surface": "#111827",
+      "bg_elevated": "#1F2937",
+      "border": "#374151",
+      "border_subtle": "#1F2937",
+      "text_main": "#F9FAFB",
+      "text_muted": "#9CA3AF",
+      "accent": "#38BDF8"
+    },
+    "public_portal": {
+      "bg_primary": "#F8FAFC",
+      "bg_surface": "#FFFFFF",
+      "bg_elevated": "#F1F5F9",
+      "border": "#E2E8F0",
+      "border_subtle": "#CBD5E1",
+      "text_main": "#0F172A",
+      "text_muted": "#64748B",
+      "accent": "#0284C7"
+    },
+    "alert_levels": {
+      "green": {
+        "bg": "#064E3B",
+        "bg_light": "#ECFDF5",
+        "border": "#059669",
+        "text": "#34D399",
+        "text_light": "#065F46",
+        "label": "Low Risk (Green)"
+      },
+      "yellow": {
+        "bg": "#78350F",
+        "bg_light": "#FEF3C7",
+        "border": "#D97706",
+        "text": "#FBBF24",
+        "text_light": "#92400E",
+        "label": "Moderate Alert (Yellow)"
+      },
+      "orange": {
+        "bg": "#7C2D12",
+        "bg_light": "#FFEDD5",
+        "border": "#EA580C",
+        "text": "#FB923C",
+        "text_light": "#9A3412",
+        "label": "High Alert (Orange)"
+      },
+      "red": {
+        "bg": "#7F1D1D",
+        "bg_light": "#FEE2E2",
+        "border": "#DC2626",
+        "text": "#F87171",
+        "text_light": "#991B1B",
+        "label": "Critical Alert (Red)"
+      }
+    },
+    "flag_chips": {
+      "F1": { "code": "F1", "name": "Budget Increase", "color": "#F59E0B", "tooltip": "F1: Expenditure exceeds initial budget allocation by >15% without prior amendment approval." },
+      "F2": { "code": "F2", "name": "Modifications", "color": "#EC4899", "tooltip": "F2: Project scope or timeline modified more than 3 times within a single fiscal quarter." },
+      "F3": { "code": "F3", "name": "Payment Discrepancy", "color": "#EF4444", "tooltip": "F3: Discrepancy detected between disbursed milestone payment and verified physical progress." },
+      "F4": { "code": "F4", "name": "Statistical Outlier", "color": "#8B5CF6", "tooltip": "F4: Cost per unit/km deviates by more than 2.5 standard deviations from regional benchmark." },
+      "F5": { "code": "F5", "name": "Schedule Overdue", "color": "#F97316", "tooltip": "F5: Construction milestone overdue by over 60 calendar days without filed force majeure." },
+      "F6": { "code": "F6", "name": "Geo Pending", "color": "#6366F1", "tooltip": "F6: Mandatory GIS coordinate verification or aerial site imagery missing from audit file." }
+    }
+  },
+  "layout_and_grids": {
+    "desktop_split": "Side-by-side layout on desktop: Left side 65% width sticky table + sticky filter bar, Right side 35% fixed height interactive Leaflet Map.",
+    "mobile_view": "Tabbed layout on mobile: [Projects Table] / [Interactive Map] / [Analytics Summary].",
+    "bento_dashboard": "Grid cols 12: Hero stats (4 cols x 3 cards), Heatmap by Municipality (8 cols), Flag Distribution Chart (4 cols), Recent Audit Activity Feed (4 cols), AI Insights Panel (4 cols).",
+    "container_padding": "Console: px-4 py-4 md:px-6 md:py-6 (High density). Public Portal: px-6 py-8 md:px-12 md:py-12 (Generous Swiss breathing space)."
+  },
+  "components_and_features": {
+    "navigation": "Top fixed navbar with Brand Logo (MONEYTRACE + CDO/Misamis Seal badge), Mode Switcher (Console vs Public), Search trigger, Role Badge (Admin / Reviewer / Guest), and Notifications Bell with unread counter.",
+    "sticky_filter_bar": "Sticky horizontal filter bar with Select boxes (Agency, Municipality, Project Type, Status, Alert Level) and interactive Flag Chip Toggles (F1-F6) with instant count badges.",
+    "scannable_table": "Dense data table with sortable columns: Alert Chip, Project Title, Implementing Agency, Location, Approved Budget, Disbursed Amount, Active Flags (with tooltip icons), Status, Actions.",
+    "leaflet_map": "Custom styled Leaflet + OpenStreetMap container with colored pin markers matching alert levels (Green/Yellow/Orange/Red), popup cards with mini financials & direct link to project detail modal or page.",
+    "claude_ai_advisory": "Advisory drawer / side panel styled with subtle violet-tinted gradient border, presenting structured sections: Risk Summary, Anomaly Rationale, Audit Questions to Ask Contractor, Recommended Reviewer Action, Draft Change Request text.",
+    "audit_trail": "Immutable, append-only log table displaying timestamp, actor name/role, action type (FLAG_TRIGGERED, VERIFICATION_FILE, CHANGE_REQUESTED, APPROVED, PUBLISHED), and delta state.",
+    "sensitive_edit_workflow": "Two-step approval modal: Reviewer requests edit → Claude drafts change context & risk score → Second Senior Reviewer / Admin reviews in queue → Approve / Return / Reject with recorded justification.",
+    "rule_config_ui": "Admin control page with slider controls for F1-F6 thresholds (e.g., F1 percentage threshold slider 5%-50%, F5 overdue days slider 15-120 days) with real-time recalculation preview.",
+    "data_import_screen": "Drag and drop CSV/XLSX dropzone with client-side column mapping, data validation parser, preview matrix, error line highlighter, and batch flag computation button.",
+    "public_disclaimer_banner": "High-visibility warning banner at top of Public Portal: 'NOTICE: Flagged indicators are automated screening markers derived from public records, not proof of financial wrongdoing or corruption.'"
+  },
+  "image_urls": {
+    "construction_site": "https://images.unsplash.com/photo-1533378890784-b2a5b0a59d40?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwxfHxpbmZyYXN0cnVjdHVyZSUyMGNvbnN0cnVjdGlvbiUyMGJ1aWxkaW5nJTIwYXJjaGl0ZWN0dXJlJTIwYWVyaWFsfGVufDB8fHx8MTc4OTM1MDg5NHww&ixlib=rb-4.1.0&q=85",
+    "infrastructure_aerial": "https://images.unsplash.com/photo-1532562145520-b8cce2486cd2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwyfHxpbmZyYXN0cnVjdHVyZSUyMGNvbnN0cnVjdGlvbiUyMGJ1aWxkaW5nJTIwYXJjaGl0ZWN0dXJlJTIwYWVyaWFsfGVufDB8fHx8MTc4OTM1MDg5NHww&ixlib=rb-4.1.0&q=85",
+    "urban_development": "https://images.unsplash.com/photo-1487491424367-7571f9afbb30?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwzfHxpbmZyYXN0cnVjdHVyZSUyMGNvbnN0cnVjdGlvbiUyMGJ1aWxkaW5nJTIwYXJjaGl0ZWN0dXJlJTIwYWVyaWFsfGVufDB8fHx8MTc4OTM1MDg5NHww&ixlib=rb-4.1.0&q=85",
+    "public_works": "https://images.unsplash.com/photo-1531431057391-da7a1aabd412?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHw0fHxpbmZyYXN0cnVjdHVyZSUyMGNvbnN0cnVjdGlvbiUyMGJ1aWxkaW5nJTIwYXJjaGl0ZWN0dXJlJTIwYWVyaWFsfGVufDB8fHx8MTc4OTM1MDg5NHww&ixlib=rb-4.1.0&q=85"
+  },
+  "instructions_to_main_agent": [
+    "Ensure both Internal Reviewer Console and Public Transparency Portal are fully implemented and accessible via seamless top bar switcher or navigation tabs.",
+    "Implement mock datasets covering real Cagayan de Oro City & Misamis Oriental infrastructure projects (e.g., Macabalan Coastal Bypass Road, CDO River Flood Risk Management Project, Carmen Bridge Rehab, El Salvador City Public Market, Gingoog Water System).",
+    "All interactive elements (buttons, inputs, select triggers, table rows, flag chips, modal triggers, tabs) MUST include descriptive data-testid attributes.",
+    "Use Lucide-react or Radix icons for UI symbols; avoid raw AI emojis in control surfaces.",
+    "Ensure F1-F6 flag tooltips use Shadcn Tooltip components so users can hovering any chip to instantly read the triggering logic.",
+    "Leaflet map must include custom marker clusters or colored SVGs matching Green, Yellow, Orange, Red alert levels.",
+    "Claude AI Advisory panel must generate interactive advisory breakdowns with copyable draft text for audit notes.",
+    "Recharts visual analytics must include Alert Distribution Pie Chart, Budget spent by Agency Bar Chart, and Municipality Risk Heatmap Matrix."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": {
+    "data_testid_requirement": "Mandatory on all buttons, links, search bars, table rows, filter dropdowns, flag chips, map pins, tabs, and action dialogs (e.g., data-testid='filter-agency-select', data-testid='flag-chip-f1', data-testid='project-row-cdo-101').",
+    "no_universal_transition": "Do not use 'transition: all' globally. Use target transitions like 'transition-colors duration-200' or 'transition-opacity duration-150'.",
+    "no_center_app_container": "Do not center align the app container globally. Maintain structural grid left-alignment for scannability.",
+    "contrast_and_accessibility": "All text elements over badges, overlays, and tables must satisfy minimum APCA/WCAG contrast standards.",
+    "toast_notifications": "Use Sonner toast component (/app/frontend/src/components/ui/sonner.jsx) for state feedback on flag verifications, data uploads, and approvals."
+  }
+}

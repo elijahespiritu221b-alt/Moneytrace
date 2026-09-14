@@ -1,0 +1,51 @@
+{
+  "summary": "MONEYTRACE backend smoke + integration pass. 34/35 checks pass. Auth (admin/reviewer), 20 seeded projects with correct F1-F6 + alert_level derivation, filters (alert_level=red, flag=F1), verify-geo clears F6, rule-config admin-only PUT with recompute, recompute-flags, change-request workflow with Claude Sonnet 5 advisory (ai_review + ai_risk populated), self-decide blocked (403), reviewer-approve updates project + writes APPROVED audit, Claude Sonnet 5 review + Haiku 4.5 summary via Emergent Universal Key, analytics totals (20 projects, alert_counts sum=20, flag_counts, by_agency, by_muni, status_counts), append-only audit logs with LOGIN/SEED/VERIFICATION_FILED/RULE_UPDATED/FLAGS_RECOMPUTED/CHANGE_REQUESTED/APPROVED actions, public endpoints work without auth, logout works, invalid login returns 401.",
+  "tested_scope": ["backend", "auth", "integration"],
+  "passed": [
+    "invalid_login_401",
+    "admin_login role=admin + access_token cookie set",
+    "reviewer_login role=reviewer",
+    "GET /auth/me with Bearer token",
+    "GET /projects returns 20 seeded projects with flags {F1..F6, alert_level, core_count}",
+    "alert_level derivation correct for all 20 (green/yellow/orange/red from core_count 0/1/2/3+)",
+    "filter alert_level=red returns only red (n=2)",
+    "filter flag=F1 returns only F1 items (n=5)",
+    "GET /projects/{id} single project",
+    "POST /projects/{id}/verify-geo clears F6 and sets geo_verified=true; VERIFICATION_FILED audit entry",
+    "GET /rule-config returns default with 6 thresholds",
+    "PUT /rule-config as reviewer -> 403",
+    "PUT /rule-config as admin -> ok, recomputed=20",
+    "POST /recompute-flags admin -> ok, recomputed=20",
+    "POST /change-requests populates ai_review + ai_risk (Claude Sonnet 5)",
+    "Self-decide returns 403 'Cannot decide on your own request'",
+    "Reviewer approves admin's CR -> project.description updated, APPROVED audit entry created",
+    "GET /change-requests with and without status filter",
+    "POST /ai/review/{pid} returns {model=claude-sonnet-5, prompt_version=v1.0, content}; stored in ai_reviews (GET /ai/reviews/{pid} works)",
+    "POST /ai/summary/{pid} returns Haiku summary",
+    "GET /analytics/overview: total_projects=20, alert_counts sum=20, flag_counts/by_agency/by_muni/status_counts present, total_budget_php present",
+    "GET /audit-logs append-only with actor_email/action; actions seen: LOGIN, SEED, VERIFICATION_FILED, RULE_UPDATED, FLAGS_RECOMPUTED, CHANGE_REQUESTED, APPROVED",
+    "GET /public/projects, /public/projects/{id}, /public/overview all work without auth",
+    "POST /auth/logout",
+    "Auth guard: /audit-logs, /rule-config, /recompute-flags all return 401 without token"
+  ],
+  "failed": [
+    {
+      "area": "Auth guard on GET /api/projects",
+      "issue": "GET /api/projects returns 200 without any Authorization header, contrary to spec ('without token returns 401'). All other protected endpoints (rule-config, audit-logs, recompute-flags) correctly enforce 401. Likely the dependency is optional (get_current_user_optional) or missing on the projects list route.",
+      "evidence": "curl GET https://project-audit-hub-5.preview.emergentagent.com/api/projects (no headers) -> status=200, body 36,705 bytes containing full 20-project payload including flags and audit-sensitive fields.",
+      "priority": "HIGH"
+    }
+  ],
+  "action_items": [
+    "In /app/backend/server.py, ensure the GET /api/projects route uses `Depends(get_current_user)` (required auth) instead of an optional dependency. Public/unauthenticated access should go through /api/public/projects only."
+  ],
+  "success_rate": {"backend": "97%", "frontend": "not tested"},
+  "retest_needed": true,
+  "full_testing_deferred": true,
+  "notes": {
+    "schema_clarifications_not_bugs": [
+      "alert_level and core_count live inside the `flags` subdocument (project.flags.alert_level, project.flags.core_count) — matches spec wording 'flags object containing F1-F6 booleans, alert_level, and core_count'.",
+      "POST /api/change-requests expects payload key `field` (not `field_name`). Confirmed working with ai_review + ai_risk populated."
+    ]
+  }
+}

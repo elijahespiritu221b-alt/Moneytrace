@@ -1,0 +1,460 @@
+"""MONEYTRACE FastAPI server."""
+from dotenv import load_dotenv
+from pathlib import Path
+
+ROOT = Path(__file__).parent
+load_dotenv(ROOT / ".env")
+
+import os
+import logging
+from datetime import datetime, timezone
+from typing import Optional, List, Any
+
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Response
+from starlette.middleware.cors import CORSMiddleware
+from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel
+
+from models import (
+    LoginRequest, UserOut, Project, RuleConfig, AuditLog,
+    ChangeRequest, gen_id, now_utc,
+)
+from auth import (
+    hash_password, verify_password, create_access_token,
+    get_current_user, require_role,
+)
+from flag_engine import compute_all_flags, compute_flags_for, _mean_cost_by_type
+from seed_data import build_seed_projects
+import ai_service
+
+
+# ---------- DB ----------
+mongo_url = os.environ["MONGO_URL"]
+client = AsyncIOMotorClient(mongo_url)
+db = client[os.environ["DB_NAME"]]
+
+app = FastAPI(title="MONEYTRACE API")
+api = APIRouter(prefix="/api")
+
+log = logging.getLogger("moneytrace")
+logging.basicConfig(level=logging.INFO)
+
+
+# ---------- Helpers ----------
+async def _log_audit(action: str, actor: Optional[dict] = None, project_id: Optional[str] = None,
+                     before: Any = None, after: Any = None, note: str = ""):
+    entry = AuditLog(
+        action=action,
+        actor_id=actor.get("id") if actor else None,
+        actor_email=actor.get("email") if actor else None,
+        actor_role=actor.get("role") if actor else None,
+        project_id=project_id,
+        before=before,
+        after=after,
+        note=note,
+    ).model_dump()
+    entry["timestamp"] = entry["timestamp"].isoformat()
+    await db.audit_logs.insert_one(entry)
+
+
+async def _get_rule_config() -> dict:
+    cfg = await db.rule_configs.find_one({"id": "default"}, {"_id": 0})
+    if not cfg:
+        cfg = RuleConfig().model_dump()
+        cfg["updated_at"] = cfg["updated_at"].isoformat()
+        await db.rule_configs.insert_one(dict(cfg))
+        cfg.pop("_id", None)
+    return cfg
+
+
+async def _recompute_all_flags(actor: Optional[dict] = None):
+    cfg = await _get_rule_config()
+    projects = await db.projects.find({}, {"_id": 0}).to_list(10000)
+    all_flags = compute_all_flags(projects, cfg)
+    await db.project_flags.delete_many({})
+    for f in all_flags:
+        f["computed_at"] = now_utc().isoformat()
+        await db.project_flags.insert_one(f)
+    await _log_audit("FLAGS_RECOMPUTED", actor=actor, note=f"Recomputed flags for {len(all_flags)} projects.")
+    return len(all_flags)
+
+
+# ---------- Startup ----------
+@app.on_event("startup")
+async def startup():
+    await db.users.create_index("email", unique=True)
+    await db.projects.create_index("id", unique=True)
+    await db.project_flags.create_index("project_id", unique=True)
+    # Seed users
+    admin_email = os.environ["ADMIN_EMAIL"]
+    admin_pw = os.environ["ADMIN_PASSWORD"]
+    if not await db.users.find_one({"email": admin_email}):
+        await db.users.insert_one({
+            "id": gen_id(), "email": admin_email,
+            "password_hash": hash_password(admin_pw),
+            "name": "Elijah Espiritu", "role": "admin",
+            "created_at": now_utc().isoformat(),
+        })
+        log.info(f"Seeded admin {admin_email}")
+    else:
+        existing = await db.users.find_one({"email": admin_email})
+        if not verify_password(admin_pw, existing["password_hash"]):
+            await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_pw)}})
+    rev_email = os.environ["REVIEWER_EMAIL"]
+    rev_pw = os.environ["REVIEWER_PASSWORD"]
+    if not await db.users.find_one({"email": rev_email}):
+        await db.users.insert_one({
+            "id": gen_id(), "email": rev_email,
+            "password_hash": hash_password(rev_pw),
+            "name": "Senior Reviewer", "role": "reviewer",
+            "created_at": now_utc().isoformat(),
+        })
+        log.info(f"Seeded reviewer {rev_email}")
+    # Seed projects
+    if await db.projects.count_documents({}) == 0:
+        for p in build_seed_projects():
+            await db.projects.insert_one(p)
+        log.info("Seeded projects")
+        await _recompute_all_flags()
+        await _log_audit("SEED", note="Initial seed data loaded.")
+    await _get_rule_config()
+
+
+# ---------- Auth ----------
+@api.post("/auth/login")
+async def login(body: LoginRequest, response: Response):
+    email = body.email.lower().strip()
+    user = await db.users.find_one({"email": email})
+    if not user or not verify_password(body.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    token = create_access_token(user["id"], user["email"], user["role"])
+    response.set_cookie(
+        key="access_token", value=token, httponly=True, secure=True,
+        samesite="none", max_age=86400, path="/",
+    )
+    await _log_audit("LOGIN", actor=user)
+    return {
+        "id": user["id"], "email": user["email"], "name": user["name"],
+        "role": user["role"], "access_token": token,
+    }
+
+
+@api.post("/auth/logout")
+async def logout(response: Response):
+    response.delete_cookie("access_token", path="/")
+    return {"ok": True}
+
+
+@api.get("/auth/me")
+async def me(user: dict = Depends(get_current_user)):
+    return {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]}
+
+
+# ---------- Projects ----------
+@api.get("/projects")
+async def list_projects(
+    agency: Optional[str] = None, municipality: Optional[str] = None,
+    project_type: Optional[str] = None, status: Optional[str] = None,
+    alert_level: Optional[str] = None, flag: Optional[str] = None,
+    q: Optional[str] = None, published_only: bool = False,
+    user: dict = Depends(get_current_user),
+):
+    query: dict = {}
+    if agency: query["agency"] = agency
+    if municipality: query["municipality"] = municipality
+    if project_type: query["project_type"] = project_type
+    if status: query["status"] = status
+    if published_only: query["published"] = True
+    if q: query["title"] = {"$regex": q, "$options": "i"}
+    projects = await db.projects.find(query, {"_id": 0}).to_list(2000)
+    flags_map = {f["project_id"]: f async for f in db.project_flags.find({}, {"_id": 0})}
+    out = []
+    for p in projects:
+        f = flags_map.get(p["id"], {})
+        if alert_level and f.get("alert_level") != alert_level:
+            continue
+        if flag and not f.get(flag):
+            continue
+        out.append({**p, "flags": f})
+    return out
+
+
+@api.get("/projects/{pid}")
+async def get_project(pid: str, user: dict = Depends(get_current_user)):
+    p = await db.projects.find_one({"id": pid}, {"_id": 0})
+    if not p:
+        raise HTTPException(404, "Project not found")
+    f = await db.project_flags.find_one({"project_id": pid}, {"_id": 0}) or {}
+    return {**p, "flags": f}
+
+
+class ProjectPatch(BaseModel):
+    field: str
+    value: Any
+
+
+@api.patch("/projects/{pid}/direct")
+async def direct_patch(pid: str, body: ProjectPatch, user: dict = Depends(require_role("admin"))):
+    """Direct admin edit (non-sensitive fields). For sensitive fields use /change-requests."""
+    p = await db.projects.find_one({"id": pid}, {"_id": 0})
+    if not p:
+        raise HTTPException(404, "Project not found")
+    old = p.get(body.field)
+    p[body.field] = body.value
+    p["updated_at"] = now_utc().isoformat()
+    await db.projects.update_one({"id": pid}, {"$set": {body.field: body.value, "updated_at": p["updated_at"]}})
+    await _log_audit("PROJECT_EDIT", actor=user, project_id=pid, before={body.field: old}, after={body.field: body.value})
+    return {"ok": True}
+
+
+@api.post("/projects/{pid}/verify-geo")
+async def verify_geo(pid: str, user: dict = Depends(get_current_user)):
+    p = await db.projects.find_one({"id": pid}, {"_id": 0})
+    if not p:
+        raise HTTPException(404, "Not found")
+    await db.projects.update_one({"id": pid}, {"$set": {"geo_verified": True, "updated_at": now_utc().isoformat()}})
+    p["geo_verified"] = True
+    cfg = await _get_rule_config()
+    all_projects = await db.projects.find({}, {"_id": 0}).to_list(2000)
+    stats = _mean_cost_by_type(all_projects)
+    f = compute_flags_for(p, cfg, stats)
+    f["computed_at"] = now_utc().isoformat()
+    await db.project_flags.update_one({"project_id": pid}, {"$set": f}, upsert=True)
+    await _log_audit("VERIFICATION_FILED", actor=user, project_id=pid, note="Geo verification filed.")
+    return {"ok": True, "flags": f}
+
+
+# ---------- Change Requests (sensitive edit workflow) ----------
+class ChangeRequestCreate(BaseModel):
+    project_id: str
+    field: str
+    new_value: Any
+
+
+@api.post("/change-requests")
+async def create_change_request(body: ChangeRequestCreate, user: dict = Depends(get_current_user)):
+    p = await db.projects.find_one({"id": body.project_id}, {"_id": 0})
+    if not p:
+        raise HTTPException(404, "Project not found")
+    old = p.get(body.field)
+    cr = ChangeRequest(
+        project_id=body.project_id, field=body.field,
+        old_value=old, new_value=body.new_value,
+        requested_by=user["id"], requested_by_email=user["email"],
+    ).model_dump()
+    cr["requested_at"] = cr["requested_at"].isoformat()
+    # AI advisory review
+    try:
+        adv = await ai_service.review_change_request(p, body.field, old, body.new_value)
+        cr["ai_review"] = adv["content"]
+        cr["ai_risk"] = adv["risk"]
+    except Exception as e:
+        cr["ai_review"] = f"AI review unavailable: {e}"
+        cr["ai_risk"] = "unknown"
+    await db.change_requests.insert_one(cr)
+    await _log_audit("CHANGE_REQUESTED", actor=user, project_id=body.project_id,
+                     before={body.field: old}, after={body.field: body.value if hasattr(body, "value") else body.new_value})
+    return {**cr, "_id": None}
+
+
+@api.get("/change-requests")
+async def list_change_requests(status: Optional[str] = None, user: dict = Depends(get_current_user)):
+    q = {"status": status} if status else {}
+    return await db.change_requests.find(q, {"_id": 0}).sort("requested_at", -1).to_list(500)
+
+
+class DecideCR(BaseModel):
+    decision: str  # approve | reject | return
+    note: Optional[str] = ""
+
+
+@api.post("/change-requests/{crid}/decide")
+async def decide_cr(crid: str, body: DecideCR, user: dict = Depends(get_current_user)):
+    cr = await db.change_requests.find_one({"id": crid}, {"_id": 0})
+    if not cr:
+        raise HTTPException(404, "Not found")
+    if cr["status"] != "pending":
+        raise HTTPException(400, "Already decided")
+    if cr["requested_by"] == user["id"]:
+        raise HTTPException(403, "Cannot decide on your own request")
+    new_status = {"approve": "approved", "reject": "rejected", "return": "returned"}.get(body.decision)
+    if not new_status:
+        raise HTTPException(400, "Invalid decision")
+    updates = {
+        "status": new_status,
+        "decided_by": user["email"],
+        "decided_at": now_utc().isoformat(),
+        "decision_note": body.note or "",
+    }
+    await db.change_requests.update_one({"id": crid}, {"$set": updates})
+    if new_status == "approved":
+        await db.projects.update_one({"id": cr["project_id"]},
+                                     {"$set": {cr["field"]: cr["new_value"], "updated_at": now_utc().isoformat()}})
+        await _recompute_all_flags(actor=user)
+    action = "APPROVED" if new_status == "approved" else "REJECTED" if new_status == "rejected" else "RETURNED"
+    await _log_audit(action, actor=user, project_id=cr["project_id"],
+                     before={cr["field"]: cr["old_value"]}, after={cr["field"]: cr["new_value"]},
+                     note=body.note or "")
+    return {"ok": True, "status": new_status}
+
+
+# ---------- AI ----------
+@api.post("/ai/review/{pid}")
+async def ai_review(pid: str, user: dict = Depends(get_current_user)):
+    p = await db.projects.find_one({"id": pid}, {"_id": 0})
+    if not p: raise HTTPException(404, "Not found")
+    f = await db.project_flags.find_one({"project_id": pid}, {"_id": 0}) or {}
+    adv = await ai_service.review_project_flags(p, f)
+    record = {
+        "id": gen_id(), "project_id": pid, **adv,
+        "created_at": now_utc().isoformat(), "created_by": user["email"],
+    }
+    await db.ai_reviews.insert_one(record)
+    return {**adv, "id": record["id"]}
+
+
+@api.get("/ai/reviews/{pid}")
+async def ai_reviews_list(pid: str, user: dict = Depends(get_current_user)):
+    return await db.ai_reviews.find({"project_id": pid}, {"_id": 0}).sort("created_at", -1).to_list(20)
+
+
+@api.post("/ai/summary/{pid}")
+async def ai_summary(pid: str, user: dict = Depends(get_current_user)):
+    p = await db.projects.find_one({"id": pid}, {"_id": 0})
+    if not p: raise HTTPException(404, "Not found")
+    f = await db.project_flags.find_one({"project_id": pid}, {"_id": 0}) or {}
+    s = await ai_service.summarize_project(p, f)
+    return {"summary": s, "model": "claude-haiku-4-5-20251001"}
+
+
+# ---------- Rule Config ----------
+@api.get("/rule-config")
+async def get_rules(user: dict = Depends(get_current_user)):
+    return await _get_rule_config()
+
+
+class RuleUpdate(BaseModel):
+    F1_pct: float
+    F1_floor: float
+    F2_max_mods: int
+    F3_tolerance_pct: float
+    F4_z_threshold: float
+    F5_days_overdue: int
+
+
+@api.put("/rule-config")
+async def update_rules(body: RuleUpdate, user: dict = Depends(require_role("admin"))):
+    before = await _get_rule_config()
+    new = body.model_dump()
+    new["id"] = "default"
+    new["updated_at"] = now_utc().isoformat()
+    new["updated_by"] = user["email"]
+    await db.rule_configs.update_one({"id": "default"}, {"$set": new}, upsert=True)
+    count = await _recompute_all_flags(actor=user)
+    await _log_audit("RULE_UPDATED", actor=user, before=before, after=new, note=f"Recomputed {count} projects.")
+    return {"ok": True, "config": new, "recomputed": count}
+
+
+@api.post("/recompute-flags")
+async def recompute(user: dict = Depends(require_role("admin"))):
+    n = await _recompute_all_flags(actor=user)
+    return {"ok": True, "recomputed": n}
+
+
+# ---------- Audit ----------
+@api.get("/audit-logs")
+async def audit_logs(limit: int = 200, user: dict = Depends(get_current_user)):
+    return await db.audit_logs.find({}, {"_id": 0}).sort("timestamp", -1).to_list(limit)
+
+
+# ---------- Analytics ----------
+@api.get("/analytics/overview")
+async def analytics_overview(user: dict = Depends(get_current_user)):
+    projects = await db.projects.find({}, {"_id": 0}).to_list(5000)
+    flags = await db.project_flags.find({}, {"_id": 0}).to_list(5000)
+    by_id = {f["project_id"]: f for f in flags}
+    alert_counts = {"green": 0, "yellow": 0, "orange": 0, "red": 0}
+    flag_counts = {k: 0 for k in ("F1", "F2", "F3", "F4", "F5", "F6")}
+    by_agency = {}
+    by_muni = {"green": {}, "yellow": {}, "orange": {}, "red": {}}
+    status_counts = {}
+    total_budget = 0.0
+    for p in projects:
+        f = by_id.get(p["id"], {})
+        al = f.get("alert_level", "green")
+        alert_counts[al] = alert_counts.get(al, 0) + 1
+        for k in flag_counts:
+            if f.get(k): flag_counts[k] += 1
+        by_agency[p["agency"]] = by_agency.get(p["agency"], 0) + float(p.get("current_budget", 0))
+        by_muni[al][p["municipality"]] = by_muni[al].get(p["municipality"], 0) + 1
+        status_counts[p["status"]] = status_counts.get(p["status"], 0) + 1
+        total_budget += float(p.get("current_budget", 0))
+    return {
+        "total_projects": len(projects),
+        "total_budget_php": total_budget,
+        "alert_counts": alert_counts,
+        "flag_counts": flag_counts,
+        "by_agency": [{"agency": k, "budget": v} for k, v in sorted(by_agency.items(), key=lambda x: -x[1])],
+        "by_muni": by_muni,
+        "status_counts": status_counts,
+    }
+
+
+# ---------- Public (no auth) ----------
+@api.get("/public/projects")
+async def public_projects():
+    projects = await db.projects.find({"published": True}, {"_id": 0}).to_list(2000)
+    flags_map = {f["project_id"]: f async for f in db.project_flags.find({}, {"_id": 0})}
+    return [{**p, "flags": flags_map.get(p["id"], {})} for p in projects]
+
+
+@api.get("/public/projects/{pid}")
+async def public_project(pid: str):
+    p = await db.projects.find_one({"id": pid, "published": True}, {"_id": 0})
+    if not p:
+        raise HTTPException(404, "Not found")
+    f = await db.project_flags.find_one({"project_id": pid}, {"_id": 0}) or {}
+    return {**p, "flags": f}
+
+
+@api.get("/public/overview")
+async def public_overview():
+    projects = await db.projects.find({"published": True}, {"_id": 0}).to_list(5000)
+    flags = await db.project_flags.find({}, {"_id": 0}).to_list(5000)
+    by_id = {f["project_id"]: f for f in flags}
+    alert_counts = {"green": 0, "yellow": 0, "orange": 0, "red": 0}
+    total_budget = 0.0
+    by_agency = {}
+    for p in projects:
+        al = by_id.get(p["id"], {}).get("alert_level", "green")
+        alert_counts[al] += 1
+        total_budget += float(p.get("current_budget", 0))
+        by_agency[p["agency"]] = by_agency.get(p["agency"], 0) + float(p.get("current_budget", 0))
+    return {
+        "total_projects": len(projects),
+        "total_budget_php": total_budget,
+        "alert_counts": alert_counts,
+        "by_agency": [{"agency": k, "budget": v} for k, v in sorted(by_agency.items(), key=lambda x: -x[1])],
+    }
+
+
+# ---------- Health ----------
+@api.get("/")
+async def root():
+    return {"service": "MONEYTRACE", "status": "ok"}
+
+
+app.include_router(api)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=True,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    client.close()
