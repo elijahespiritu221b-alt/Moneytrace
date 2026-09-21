@@ -14,10 +14,20 @@ import { Search, Filter } from "lucide-react";
 
 export default function Projects() {
   const nav = useNavigate();
+  const [searchParams] = useSearchParams();
+  const pageTitle = searchParams.get("title");
   const [projects, setProjects] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({ q: "", agency: "all", municipality: "all", project_type: "all", status: "all", alert_level: "all", flag: "all" });
+  const [filters, setFilters] = useState({
+    q: searchParams.get("q") || "",
+    agency: searchParams.get("agency") || "all",
+    municipality: "all",
+    project_type: "all",
+    status: "all",
+    alert_level: searchParams.get("alert_level") || "all",
+    flag: searchParams.get("flag") || "all",
+  });
 
   const load = async () => {
     setLoading(true);
@@ -44,7 +54,7 @@ export default function Projects() {
       <div className="space-y-4">
         <div className="flex items-end justify-between flex-wrap gap-3">
           <div>
-            <h1 className="font-display text-3xl font-bold tracking-tight">Projects</h1>
+            <h1 className="font-display text-3xl font-bold tracking-tight">{pageTitle || "Projects"}</h1>
             <p className="text-slate-400 text-sm mt-1">
               Showing <span className="text-slate-100 font-mono">{projects.length}</span> of{" "}
               <span className="text-slate-100 font-mono">{total.toLocaleString()}</span> records

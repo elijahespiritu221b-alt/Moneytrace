@@ -1,22 +1,20 @@
 import { NavLink, useNavigate } from "react-router-dom";
+import { useState } from "react";
 import { useAuth } from "../lib/auth-context";
 import { Button } from "./ui/button";
-import { LayoutDashboard, ListTree, Map, Sliders, ScrollText, LogOut, ShieldCheck, Globe, Inbox, Building2, Megaphone } from "lucide-react";
+import {
+  LayoutDashboard, Building2, ChevronDown, ChevronRight,
+  ClipboardList, Sparkles, ShieldCheck, AlertOctagon,
+  DollarSign, CreditCard, CalendarClock, Clock,
+  ScanSearch, Map, Users, Sliders, ScrollText, Megaphone,
+  LogOut, Globe, GraduationCap, HardHat, Stethoscope,
+} from "lucide-react";
 
 export function ConsoleLayout({ children }) {
   const { user, logout } = useAuth();
   const nav = useNavigate();
-  const links = [
-    { to: "/console", icon: LayoutDashboard, label: "Dashboard", testid: "nav-dashboard" },
-    { to: "/console/offices", icon: Building2, label: "DILG Offices", testid: "nav-offices" },
-    { to: "/console/projects", icon: ListTree, label: "Projects", testid: "nav-projects" },
-    { to: "/console/requests", icon: Inbox, label: "Change Requests", testid: "nav-requests" },
-    { to: "/console/complaints", icon: Megaphone, label: "Complaints", testid: "nav-complaints" },
-    { to: "/console/audit", icon: ScrollText, label: "Audit Trail", testid: "nav-audit" },
-  ];
-  if (user?.role === "admin") {
-    links.push({ to: "/console/rules", icon: Sliders, label: "Rule Config", testid: "nav-rules" });
-  }
+  const [agenciesOpen, setAgenciesOpen] = useState(true);
+
   return (
     <div className="min-h-screen bg-[#0B0F17] text-slate-100 grain-bg">
       <header className="sticky top-0 z-30 border-b border-slate-800 bg-[#0B0F17]/95 backdrop-blur">
@@ -48,30 +46,112 @@ export function ConsoleLayout({ children }) {
         </div>
       </header>
       <div className="mx-auto max-w-[1600px] px-4 md:px-6 py-4 md:py-6 grid grid-cols-12 gap-6">
-        <aside className="hidden md:block col-span-2">
-          <nav className="sticky top-20 space-y-1">
-            {links.map((l) => (
-              <NavLink
-                key={l.to}
-                to={l.to}
-                end={l.to === "/console"}
-                data-testid={l.testid}
-                className={({ isActive }) =>
-                  `flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors ${
-                    isActive
-                      ? "bg-sky-500/15 text-sky-400 border border-sky-500/30"
-                      : "text-slate-400 hover:text-slate-100 hover:bg-slate-800/60"
-                  }`
-                }
+        <aside className="hidden md:block col-span-3 lg:col-span-2">
+          <nav className="sticky top-20 space-y-4 pr-1">
+            <Section title="Main">
+              <Item to="/console" icon={LayoutDashboard} label="Dashboard" testid="nav-dashboard" end />
+            </Section>
+
+            <Section title="Agencies">
+              <button
+                onClick={() => setAgenciesOpen((v) => !v)}
+                data-testid="nav-agencies-toggle"
+                className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-300 hover:text-slate-100 hover:bg-slate-800/60"
               >
-                <l.icon className="w-4 h-4" /> {l.label}
-              </NavLink>
-            ))}
+                <Building2 className="w-4 h-4" />
+                <span className="flex-1 text-left">Agencies &amp; Districts</span>
+                {agenciesOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+              </button>
+              {agenciesOpen && (
+                <div className="ml-2 mt-1 space-y-0.5 border-l border-slate-800 pl-2">
+                  <NavLink to="/console/offices" end
+                    data-testid="nav-agencies-all"
+                    className={({ isActive }) =>
+                      `flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors ${
+                        isActive ? "bg-sky-500/15 text-sky-400" : "text-slate-400 hover:text-slate-100 hover:bg-slate-800/60"
+                      }`
+                    }>
+                    <Building2 className="w-3 h-3" /> All (15 offices)
+                  </NavLink>
+                  <SubItem to="/console/offices/DEPED/units" icon={GraduationCap} label="DepEd" testid="nav-sub-deped" />
+                  <SubItem to="/console/offices/DPWH/units"  icon={HardHat}       label="DPWH"  testid="nav-sub-dpwh" />
+                  <SubItem to="/console/offices/DOH/units"   icon={Stethoscope}   label="DOH"   testid="nav-sub-doh" />
+                </div>
+              )}
+            </Section>
+
+            <Section title="Requests">
+              <Item to="/console/requests" icon={ClipboardList} label="Request Management" testid="nav-requests" />
+              <Item to="/console/complaints" icon={Megaphone} label="Complaints" testid="nav-complaints" />
+            </Section>
+
+            <Section title="AI-Assisted Review">
+              <Item to="/console/ai-review" icon={Sparkles} label="AI Review Queue" testid="nav-ai-review" />
+              <Item to="/console/verification" icon={ShieldCheck} label="Human Verification" testid="nav-verification" />
+              <Item to="/console/ai-exceptions" icon={AlertOctagon} label="AI Exceptions" testid="nav-ai-exceptions" />
+            </Section>
+
+            <Section title="Monitoring">
+              <Item to="/console/monitoring/financial" icon={DollarSign} label="Financial Monitoring" testid="nav-mon-fin" />
+              <Item to="/console/monitoring/payment" icon={CreditCard} label="Payment Monitoring" testid="nav-mon-pay" />
+              <Item to="/console/monitoring/schedule" icon={CalendarClock} label="Schedule Monitoring" testid="nav-mon-sch" />
+              <Item to="/console/monitoring/delayed" icon={Clock} label="Delayed Projects" testid="nav-mon-del" />
+            </Section>
+
+            <Section title="Analysis">
+              <Item to={{ pathname: "/console/analysis/anomaly", search: "?flag=F4&title=Anomaly%20Screening" }} icon={ScanSearch} label="Anomaly Screening" testid="nav-analysis-anomaly" />
+              <Item to="/console/analysis/map" icon={Map} label="Project Map" testid="nav-analysis-map" />
+              <Item to="/console/analysis/entities" icon={Users} label="Entity Traceability" testid="nav-analysis-entities" />
+            </Section>
+
+            {user?.role === "admin" && (
+              <Section title="Administration">
+                <Item to="/console/rules" icon={Sliders} label="Rule Configuration" testid="nav-rules" />
+                <Item to="/console/audit" icon={ScrollText} label="Audit Trail" testid="nav-audit" />
+              </Section>
+            )}
           </nav>
         </aside>
-        <main className="col-span-12 md:col-span-10 min-w-0">{children}</main>
+        <main className="col-span-12 md:col-span-9 lg:col-span-10 min-w-0">{children}</main>
       </div>
     </div>
+  );
+}
+
+function Section({ title, children }) {
+  return (
+    <div>
+      <div className="px-3 pb-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">{title}</div>
+      <div className="space-y-0.5">{children}</div>
+    </div>
+  );
+}
+
+function Item({ to, icon: Icon, label, testid, end }) {
+  return (
+    <NavLink to={to} end={end} data-testid={testid}
+      className={({ isActive }) =>
+        `flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors ${
+          isActive
+            ? "bg-sky-500/15 text-sky-400 border border-sky-500/30"
+            : "text-slate-400 hover:text-slate-100 hover:bg-slate-800/60"
+        }`
+      }>
+      <Icon className="w-4 h-4" /> {label}
+    </NavLink>
+  );
+}
+
+function SubItem({ to, icon: Icon, label, testid }) {
+  return (
+    <NavLink to={to} data-testid={testid}
+      className={({ isActive }) =>
+        `flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors ${
+          isActive ? "bg-sky-500/15 text-sky-400" : "text-slate-400 hover:text-slate-100 hover:bg-slate-800/60"
+        }`
+      }>
+      <Icon className="w-3 h-3" /> {label}
+    </NavLink>
   );
 }
 
