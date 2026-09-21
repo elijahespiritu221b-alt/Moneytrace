@@ -12,6 +12,7 @@ import Offices from "./pages/Offices";
 import MonitoringUnits from "./pages/MonitoringUnits";
 import Complaints from "./pages/Complaints";
 import EntityTraceability from "./pages/EntityTraceability";
+import EntityDetail from "./pages/EntityDetail";
 import ProjectMapPage from "./pages/ProjectMapPage";
 import PublicPortal from "./pages/PublicPortal";
 import PublicProjectDetail from "./pages/PublicProjectDetail";
@@ -50,6 +51,7 @@ function App() {
           <Route path="/console/analysis/anomaly" element={<Protected><Projects /></Protected>} />
           <Route path="/console/analysis/map" element={<Protected><ProjectMapPage /></Protected>} />
           <Route path="/console/analysis/entities" element={<Protected><EntityTraceability /></Protected>} />
+          <Route path="/console/entities/:name" element={<Protected><EntityDetail /></Protected>} />
           <Route path="/console/complaints" element={<Protected><Complaints /></Protected>} />
           <Route path="/console/audit" element={<Protected><AuditLog /></Protected>} />
           <Route path="/console/rules" element={<Protected role="admin"><RuleConfig /></Protected>} />

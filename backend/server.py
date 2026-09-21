@@ -694,6 +694,168 @@ async def complaints_stats(user: dict = Depends(get_current_user)):
     return counts
 
 
+# ---------- Entity Traceability ----------
+def _entity_key(name: str) -> str:
+    return (name or "—").strip()
+
+
+@api.get("/entities")
+async def list_entities(user: dict = Depends(get_current_user)):
+    """Aggregate contractor / implementing-entity stats across the whole portfolio."""
+    projects = await db.projects.find({}, {"_id": 0}).to_list(20000)
+    flags_map = {f["project_id"]: f async for f in db.project_flags.find({}, {"_id": 0})}
+
+    ALERT_WEIGHT = {"green": 1, "yellow": 2, "orange": 3, "red": 4}
+    buckets: dict = {}
+    for p in projects:
+        key = _entity_key(p.get("contractor"))
+        b = buckets.setdefault(key, {
+            "name": key,
+            "count": 0,
+            "budget": 0.0,
+            "approved": 0.0,
+            "disbursed": 0.0,
+            "agencies": set(),
+            "municipalities": set(),
+            "project_types": set(),
+            "red": 0, "orange": 0, "yellow": 0, "green": 0,
+            "flag_counts": {"F1": 0, "F2": 0, "F3": 0, "F4": 0, "F5": 0, "F6": 0},
+            "alert_weight_sum": 0,
+            "first_seen": None,
+            "last_seen": None,
+        })
+        b["count"] += 1
+        b["budget"] += float(p.get("current_budget") or 0)
+        b["approved"] += float(p.get("approved_budget") or 0)
+        b["disbursed"] += float(p.get("disbursed_amount") or 0)
+        b["agencies"].add(p.get("agency") or "—")
+        b["municipalities"].add(p.get("municipality") or "—")
+        b["project_types"].add(p.get("project_type") or "—")
+        f = flags_map.get(p["id"], {})
+        lvl = (f.get("alert_level") or "green").lower()
+        b[lvl] = b.get(lvl, 0) + 1
+        b["alert_weight_sum"] += ALERT_WEIGHT.get(lvl, 1)
+        for k in ("F1", "F2", "F3", "F4", "F5", "F6"):
+            if f.get(k):
+                b["flag_counts"][k] += 1
+        sd = p.get("start_date")
+        ed = p.get("start_date") or p.get("end_date")
+        if sd:
+            s = str(sd)
+            if b["first_seen"] is None or s < b["first_seen"]:
+                b["first_seen"] = s
+            if b["last_seen"] is None or s > b["last_seen"]:
+                b["last_seen"] = s
+
+    out = []
+    for b in buckets.values():
+        util = (b["disbursed"] / b["budget"] * 100.0) if b["budget"] else 0.0
+        avg_alert = (b["alert_weight_sum"] / b["count"]) if b["count"] else 1.0
+        out.append({
+            "name": b["name"],
+            "count": b["count"],
+            "budget": round(b["budget"], 2),
+            "approved": round(b["approved"], 2),
+            "disbursed": round(b["disbursed"], 2),
+            "utilization_pct": round(util, 1),
+            "avg_alert": round(avg_alert, 2),
+            "agencies_count": len(b["agencies"]),
+            "agencies": sorted(b["agencies"]),
+            "municipalities_count": len(b["municipalities"]),
+            "municipalities": sorted(b["municipalities"])[:8],
+            "project_types": sorted(b["project_types"]),
+            "red": b["red"], "orange": b["orange"],
+            "yellow": b["yellow"], "green": b["green"],
+            "flag_counts": b["flag_counts"],
+            "first_seen": b["first_seen"],
+            "last_seen": b["last_seen"],
+        })
+    out.sort(key=lambda x: (-x["red"] * 100 - x["orange"] * 10 - x["count"]))
+    return out
+
+
+@api.get("/entities/{name}")
+async def entity_detail(name: str, user: dict = Depends(get_current_user)):
+    """Deep detail for one contractor / entity: all projects + reviews + complaints + change reqs."""
+    from urllib.parse import unquote
+    key = _entity_key(unquote(name))
+    projects = await db.projects.find({"contractor": key}, {"_id": 0}).to_list(5000)
+    if not projects:
+        raise HTTPException(404, "Entity has no projects")
+    ids = [p["id"] for p in projects]
+    flags_map = {f["project_id"]: f async for f in db.project_flags.find({"project_id": {"$in": ids}}, {"_id": 0})}
+
+    # Attach flags
+    for p in projects:
+        p["flags"] = flags_map.get(p["id"], {})
+
+    # Related documents
+    ai_reviews = await db.ai_reviews.find(
+        {"project_id": {"$in": ids}}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    complaints = await db.complaints.find(
+        {"project_id": {"$in": ids}}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    change_requests = await db.change_requests.find(
+        {"project_id": {"$in": ids}}, {"_id": 0}
+    ).sort("requested_at", -1).to_list(500)
+
+    # Aggregates
+    ALERT_WEIGHT = {"green": 1, "yellow": 2, "orange": 3, "red": 4}
+    agg = {
+        "count": len(projects),
+        "budget": 0.0, "approved": 0.0, "disbursed": 0.0,
+        "alert_counts": {"green": 0, "yellow": 0, "orange": 0, "red": 0},
+        "flag_counts": {"F1": 0, "F2": 0, "F3": 0, "F4": 0, "F5": 0, "F6": 0},
+        "agency_counts": {},
+        "type_counts": {},
+        "lgu_counts": {},
+        "status_counts": {},
+        "yearly": {},
+    }
+    for p in projects:
+        agg["budget"] += float(p.get("current_budget") or 0)
+        agg["approved"] += float(p.get("approved_budget") or 0)
+        agg["disbursed"] += float(p.get("disbursed_amount") or 0)
+        f = flags_map.get(p["id"], {})
+        lvl = (f.get("alert_level") or "green").lower()
+        agg["alert_counts"][lvl] = agg["alert_counts"].get(lvl, 0) + 1
+        for k in ("F1", "F2", "F3", "F4", "F5", "F6"):
+            if f.get(k):
+                agg["flag_counts"][k] += 1
+        ag = p.get("agency") or "—"
+        agg["agency_counts"][ag] = agg["agency_counts"].get(ag, 0) + 1
+        tp = p.get("project_type") or "—"
+        agg["type_counts"][tp] = agg["type_counts"].get(tp, 0) + 1
+        lg = p.get("municipality") or "—"
+        agg["lgu_counts"][lg] = agg["lgu_counts"].get(lg, 0) + 1
+        st = p.get("status") or "—"
+        agg["status_counts"][st] = agg["status_counts"].get(st, 0) + 1
+        sd = p.get("start_date")
+        if sd:
+            yr = str(sd)[:4]
+            agg["yearly"][yr] = agg["yearly"].get(yr, 0) + 1
+
+    agg["utilization_pct"] = round(
+        (agg["disbursed"] / agg["budget"] * 100.0) if agg["budget"] else 0.0, 1
+    )
+    agg["avg_project_size"] = round(agg["budget"] / max(agg["count"], 1), 2)
+    weight_sum = sum(ALERT_WEIGHT[lvl] * c for lvl, c in agg["alert_counts"].items())
+    agg["avg_alert"] = round(weight_sum / max(agg["count"], 1), 2)
+    agg["budget"] = round(agg["budget"], 2)
+    agg["approved"] = round(agg["approved"], 2)
+    agg["disbursed"] = round(agg["disbursed"], 2)
+
+    return {
+        "name": key,
+        "aggregates": agg,
+        "projects": projects,
+        "ai_reviews": ai_reviews,
+        "complaints": complaints,
+        "change_requests": change_requests,
+    }
+
+
 # ---------- Health ----------
 @api.get("/")
 async def root():

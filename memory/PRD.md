@@ -29,6 +29,13 @@ Rule-based public expenditure screening for Cagayan de Oro City & Misamis Orient
 - ✅ RBAC: reviewer blocked from rule-config, self-decide blocked, unauth blocked from console routes
 - ✅ 34/35 backend integration tests pass
 
+## Implemented (Phase 2 — Traceability & Seed Depth, Feb 2026)
+- ✅ 100 seeded fake reviews (34 AI Reviews + 33 Public Complaints + 33 Change Requests) — contextual, referencing real F1–F6 flag details, mixed statuses/decisions, concentrated on top-25 contractors so entity profiles show meaningful traces (`/app/backend/seed_reviews.py`, wipe with `--wipe`, seed_tag: `seeded:v1`)
+- ✅ Backend `GET /api/entities` — aggregates contractor stats across the 7,500-project portfolio (utilization %, avg alert weight, flag counts F1–F6, agencies, LGUs, first/last-seen dates)
+- ✅ Backend `GET /api/entities/{name}` — full entity profile: aggregates + projects + AI reviews + complaints + change requests
+- ✅ Entity Traceability table upgraded: KPI strip (entities/projects/budget/disbursed/red/orange), 12-column sortable table with Utilization bar, Avg-Alert pill, F1–F6 flag-mix chips, First/Last Seen, and CSV export
+- ✅ New Entity Detail page (`/console/entities/:name`): KPIs, alert distribution bars, flag-mix cards, agency/type/LGU breakdown bars, yearly awards timeline, and 4 tabs (Projects · AI Reviews · Complaints · Change Requests) with rich cards linking back to project detail
+
 ## Deferred (v2 backlog)
 - Full role model: PM / Finance / Procurement / Inspector / Records officers
 - Citizen reporting on public portal (needs captcha + AI pre-moderation + human review)
