@@ -2,6 +2,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useAuth } from "../lib/auth-context";
 import { Button } from "./ui/button";
+import { NotificationBell } from "./NotificationBell";
 import {
   LayoutDashboard, Building2, ChevronDown, ChevronRight,
   ClipboardList, Sparkles, ShieldCheck, AlertOctagon,
@@ -33,6 +34,7 @@ export function ConsoleLayout({ children }) {
             <NavLink to="/public" className="text-xs text-slate-400 hover:text-sky-400 inline-flex items-center gap-1" data-testid="nav-public">
               <Globe className="w-3.5 h-3.5" /> Public Portal
             </NavLink>
+            <NotificationBell />
             <div className="hidden md:flex flex-col items-end">
               <div className="text-xs text-slate-200">{user?.name}</div>
               <div className="text-[10px] uppercase tracking-widest text-slate-500 flex items-center gap-1">

@@ -36,6 +36,10 @@ Rule-based public expenditure screening for Cagayan de Oro City & Misamis Orient
 - ✅ Entity Traceability table upgraded: KPI strip (entities/projects/budget/disbursed/red/orange), 12-column sortable table with Utilization bar, Avg-Alert pill, F1–F6 flag-mix chips, First/Last Seen, and CSV export
 - ✅ New Entity Detail page (`/console/entities/:name`): KPIs, alert distribution bars, flag-mix cards, agency/type/LGU breakdown bars, yearly awards timeline, and 4 tabs (Projects · AI Reviews · Complaints · Change Requests) with rich cards linking back to project detail
 
+## Implemented (Phase 3 — Notifications & Watchlist, Feb 2026)
+- ✅ **Notification Center**: fan-out on new complaints, new change requests, and green→red alert transitions. New endpoints `GET /api/notifications`, `GET /api/notifications/unread-count`, `POST /api/notifications/{id}/read`, `POST /api/notifications/read-all`. Bell icon in `ConsoleLayout` header with unread badge, dropdown panel, mark-all-read, per-item click routes to source (e.g. `/console/complaints`, `/console/requests`, `/console/projects/{id}`). Auto-polls every 25s. Requester is excluded from their own change-request notification.
+- ✅ **Entity Watchlist**: `db.entity_watchlist` per-user starred contractors. Endpoints `GET /api/watchlist` and `POST /api/watchlist/{name}` (toggle). Star column added to Entity Traceability with per-row toggle + tinted watched rows; watched entities are pinned to the top regardless of user sort. Star button also on Entity Detail page next to the entity name. `/api/entities` and `/api/entities/{name}` now return `watched: bool` scoped to the current user.
+
 ## Deferred (v2 backlog)
 - Full role model: PM / Finance / Procurement / Inspector / Records officers
 - Citizen reporting on public portal (needs captcha + AI pre-moderation + human review)

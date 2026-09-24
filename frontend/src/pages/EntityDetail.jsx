@@ -6,9 +6,10 @@ import { Card } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui/tabs";
+import { toast } from "sonner";
 import {
   ArrowLeft, Building2, MapPin, Layers, TrendingUp, ClipboardList,
-  MessageSquareWarning, Sparkles, GitPullRequestArrow, Users,
+  MessageSquareWarning, Sparkles, GitPullRequestArrow, Users, Star,
 } from "lucide-react";
 
 const RISK_COLOR = {
@@ -59,6 +60,16 @@ export default function EntityDetail() {
   const { aggregates: agg, projects, ai_reviews, complaints, change_requests } = data;
   const alertLevels = ["red", "orange", "yellow", "green"];
 
+  const toggleWatch = async () => {
+    try {
+      const { data: res } = await api.post(`/watchlist/${encodeURIComponent(data.name)}`);
+      setData((d) => ({ ...d, watched: res.watched }));
+      toast.success(res.watched ? `Starred "${data.name}"` : `Removed "${data.name}"`);
+    } catch (e) {
+      toast.error("Failed to update watchlist");
+    }
+  };
+
   return (
     <ConsoleLayout>
       <div className="space-y-5">
@@ -71,9 +82,17 @@ export default function EntityDetail() {
             <div className="text-[10px] uppercase tracking-widest text-slate-500 flex items-center gap-1.5">
               <Building2 className="w-3 h-3" /> Entity / Contractor
             </div>
-            <h1 className="font-display text-2xl md:text-3xl font-bold text-slate-100 mt-0.5 leading-tight">
-              {data.name}
-            </h1>
+            <div className="flex items-center gap-2 mt-0.5">
+              <h1 className="font-display text-2xl md:text-3xl font-bold text-slate-100 leading-tight">
+                {data.name}
+              </h1>
+              <button onClick={toggleWatch}
+                      data-testid="entity-star"
+                      title={data.watched ? "Remove from watchlist" : "Add to watchlist"}
+                      className="p-1.5 rounded hover:bg-slate-800/60 transition-colors">
+                <Star className={`w-5 h-5 ${data.watched ? "fill-amber-400 text-amber-400" : "text-slate-600 hover:text-amber-300"}`} />
+              </button>
+            </div>
             <div className="flex flex-wrap gap-2 mt-2 text-xs text-slate-400">
               <span>{agg.count.toLocaleString()} projects</span><span>·</span>
               <span>{Object.keys(agg.agency_counts).length} agencies</span><span>·</span>

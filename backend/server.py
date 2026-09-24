@@ -73,13 +73,57 @@ async def _get_rule_config() -> dict:
 async def _recompute_all_flags(actor: Optional[dict] = None):
     cfg = await _get_rule_config()
     projects = await db.projects.find({}, {"_id": 0}).to_list(10000)
+    # capture prior alert levels so we can notify on green/yellow/orange → red transitions
+    prior_levels = {
+        f["project_id"]: (f.get("alert_level") or "green")
+        async for f in db.project_flags.find({}, {"project_id": 1, "alert_level": 1})
+    }
+    project_titles = {p["id"]: p.get("title", "") for p in projects}
     all_flags = compute_all_flags(projects, cfg)
     await db.project_flags.delete_many({})
+    newly_red = []
     for f in all_flags:
         f["computed_at"] = now_utc().isoformat()
         await db.project_flags.insert_one(f)
+        pid = f["project_id"]
+        if (f.get("alert_level") == "red") and prior_levels.get(pid) != "red":
+            newly_red.append(pid)
     await _log_audit("FLAGS_RECOMPUTED", actor=actor, note=f"Recomputed flags for {len(all_flags)} projects.")
+    # Fan-out red-alert notifications (cap to avoid noise on initial recompute of huge sets)
+    for pid in newly_red[:25]:
+        title = project_titles.get(pid, pid)
+        await _notify_reviewers(
+            title=f"New RED alert: {title[:80]}",
+            body="A project just crossed into RED alert level after the latest flag recomputation.",
+            link=f"/console/projects/{pid}",
+            kind="red_alert",
+            project_id=pid,
+        )
     return len(all_flags)
+
+
+# ---------- Notifications (fan-out) ----------
+async def _notify_reviewers(title: str, body: str, link: Optional[str] = None,
+                            kind: str = "info", project_id: Optional[str] = None,
+                            exclude_user_id: Optional[str] = None):
+    """Insert one notification per admin/reviewer. Cheap for small user sets."""
+    docs = []
+    async for u in db.users.find({"role": {"$in": ["admin", "reviewer"]}}, {"id": 1}):
+        if exclude_user_id and u.get("id") == exclude_user_id:
+            continue
+        docs.append({
+            "id": gen_id(),
+            "user_id": u["id"],
+            "title": title,
+            "body": body,
+            "link": link,
+            "kind": kind,          # complaint | change_request | red_alert | info
+            "project_id": project_id,
+            "read": False,
+            "created_at": now_utc().isoformat(),
+        })
+    if docs:
+        await db.notifications.insert_many(docs)
 
 
 # ---------- Startup ----------
@@ -306,6 +350,14 @@ async def create_change_request(body: ChangeRequestCreate, user: dict = Depends(
     await db.change_requests.insert_one(cr)
     await _log_audit("CHANGE_REQUESTED", actor=user, project_id=body.project_id,
                      before={body.field: old}, after={body.field: body.value if hasattr(body, "value") else body.new_value})
+    await _notify_reviewers(
+        title=f"Change request: {body.field} on {(p.get('title') or '')[:70]}",
+        body=f"Requested by {user['email']} — awaiting a second reviewer's decision.",
+        link=f"/console/requests",
+        kind="change_request",
+        project_id=body.project_id,
+        exclude_user_id=user.get("id"),
+    )
     return {**cr, "_id": None}
 
 
@@ -650,6 +702,13 @@ async def submit_complaint(body: ComplaintCreate, request: Request):
     await db.complaints.insert_one(entry)
     await _log_audit("COMPLAINT_FILED", project_id=body.project_id,
                      note=f"Public complaint: {body.category} — {body.title[:80]}")
+    await _notify_reviewers(
+        title=f"New complaint: {body.title[:80]}",
+        body=f"[{body.category}] {body.description[:140]}",
+        link="/console/complaints",
+        kind="complaint",
+        project_id=body.project_id,
+    )
     return {"ok": True, "id": entry["id"]}
 
 
@@ -692,6 +751,69 @@ async def complaints_stats(user: dict = Depends(get_current_user)):
     async for c in db.complaints.find({}, {"status": 1}):
         counts[c.get("status", "new")] = counts.get(c.get("status", "new"), 0) + 1
     return counts
+
+
+# ---------- Notifications API ----------
+@api.get("/notifications")
+async def list_notifications(limit: int = 50, unread_only: bool = False,
+                             user: dict = Depends(get_current_user)):
+    q: dict = {"user_id": user["id"]}
+    if unread_only:
+        q["read"] = False
+    items = await db.notifications.find(q, {"_id": 0}).sort("created_at", -1).to_list(min(limit, 200))
+    return items
+
+
+@api.get("/notifications/unread-count")
+async def unread_count(user: dict = Depends(get_current_user)):
+    n = await db.notifications.count_documents({"user_id": user["id"], "read": False})
+    return {"count": n}
+
+
+@api.post("/notifications/{nid}/read")
+async def mark_read(nid: str, user: dict = Depends(get_current_user)):
+    await db.notifications.update_one(
+        {"id": nid, "user_id": user["id"]},
+        {"$set": {"read": True}},
+    )
+    return {"ok": True}
+
+
+@api.post("/notifications/read-all")
+async def mark_all_read(user: dict = Depends(get_current_user)):
+    r = await db.notifications.update_many(
+        {"user_id": user["id"], "read": False},
+        {"$set": {"read": True}},
+    )
+    return {"ok": True, "updated": r.modified_count}
+
+
+# ---------- Entity Watchlist ----------
+@api.get("/watchlist")
+async def get_watchlist(user: dict = Depends(get_current_user)):
+    items = await db.entity_watchlist.find(
+        {"user_id": user["id"]}, {"_id": 0}
+    ).sort("starred_at", -1).to_list(500)
+    return items
+
+
+@api.post("/watchlist/{name}")
+async def toggle_watchlist(name: str, user: dict = Depends(get_current_user)):
+    from urllib.parse import unquote
+    key = unquote(name).strip()
+    if not key:
+        raise HTTPException(400, "Invalid entity name")
+    existing = await db.entity_watchlist.find_one({"user_id": user["id"], "entity_name": key})
+    if existing:
+        await db.entity_watchlist.delete_one({"user_id": user["id"], "entity_name": key})
+        return {"watched": False, "entity_name": key}
+    await db.entity_watchlist.insert_one({
+        "id": gen_id(),
+        "user_id": user["id"],
+        "entity_name": key,
+        "starred_at": now_utc().isoformat(),
+    })
+    return {"watched": True, "entity_name": key}
 
 
 # ---------- Entity Traceability ----------
@@ -747,6 +869,12 @@ async def list_entities(user: dict = Depends(get_current_user)):
             if b["last_seen"] is None or s > b["last_seen"]:
                 b["last_seen"] = s
 
+    # Pull current user's watchlist so we can pin watched entities
+    watched = {
+        w["entity_name"]
+        async for w in db.entity_watchlist.find({"user_id": user["id"]}, {"entity_name": 1})
+    }
+
     out = []
     for b in buckets.values():
         util = (b["disbursed"] / b["budget"] * 100.0) if b["budget"] else 0.0
@@ -769,8 +897,11 @@ async def list_entities(user: dict = Depends(get_current_user)):
             "flag_counts": b["flag_counts"],
             "first_seen": b["first_seen"],
             "last_seen": b["last_seen"],
+            "watched": b["name"] in watched,
         })
-    out.sort(key=lambda x: (-x["red"] * 100 - x["orange"] * 10 - x["count"]))
+    # Watched entities pinned to top, then by risk severity
+    out.sort(key=lambda x: (0 if x["watched"] else 1,
+                            -x["red"] * 100 - x["orange"] * 10 - x["count"]))
     return out
 
 
@@ -846,8 +977,12 @@ async def entity_detail(name: str, user: dict = Depends(get_current_user)):
     agg["approved"] = round(agg["approved"], 2)
     agg["disbursed"] = round(agg["disbursed"], 2)
 
+    watched = await db.entity_watchlist.find_one(
+        {"user_id": user["id"], "entity_name": key}
+    )
     return {
         "name": key,
+        "watched": bool(watched),
         "aggregates": agg,
         "projects": projects,
         "ai_reviews": ai_reviews,

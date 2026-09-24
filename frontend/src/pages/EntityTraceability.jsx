@@ -5,11 +5,13 @@ import { ConsoleLayout } from "../components/Layout";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
-import { Users, Search, Download, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { toast } from "sonner";
+import { Users, Search, Download, ArrowUpDown, ArrowUp, ArrowDown, Star } from "lucide-react";
 
 const ALERT_LABELS = { 1: "Green", 2: "Yellow", 3: "Orange", 4: "Red" };
 
 const COLS = [
+  { key: "watched", label: "★", align: "center", sortable: false },
   { key: "name", label: "Entity / Contractor", align: "left" },
   { key: "count", label: "Projects", align: "right", fmt: (v) => v.toLocaleString() },
   { key: "budget", label: "Total Budget", align: "right", fmt: fmtPHP },
@@ -46,7 +48,9 @@ export default function EntityTraceability() {
   const filtered = useMemo(() => {
     const src = q ? rows.filter((r) => r.name.toLowerCase().includes(q.toLowerCase())) : rows;
     const dir = sortDir === "asc" ? 1 : -1;
+    // Watched entities are ALWAYS pinned to top, then user sort applies within groups
     return [...src].sort((a, b) => {
+      if (!!b.watched !== !!a.watched) return b.watched ? 1 : -1;
       const va = a[sortKey];
       const vb = b[sortKey];
       if (va == null && vb == null) return 0;
@@ -56,6 +60,17 @@ export default function EntityTraceability() {
       return String(va).localeCompare(String(vb)) * dir;
     });
   }, [rows, q, sortKey, sortDir]);
+
+  const toggleWatch = async (e, name) => {
+    e.stopPropagation();
+    try {
+      const { data } = await api.post(`/watchlist/${encodeURIComponent(name)}`);
+      setRows((prev) => prev.map((r) => (r.name === name ? { ...r, watched: data.watched } : r)));
+      toast.success(data.watched ? `Starred "${name}"` : `Removed "${name}"`);
+    } catch (e) {
+      toast.error("Failed to update watchlist");
+    }
+  };
 
   const totals = useMemo(() => {
     const t = { entities: filtered.length, projects: 0, budget: 0, disbursed: 0, red: 0, orange: 0 };
@@ -163,9 +178,17 @@ export default function EntityTraceability() {
                 {loading && <tr><td colSpan={COLS.length} className="py-8 text-center text-slate-500">Loading…</td></tr>}
                 {!loading && filtered.slice(0, 500).map((r, i) => (
                   <tr key={i}
-                      className="border-t border-slate-800 hover:bg-slate-800/40 cursor-pointer"
+                      className={`border-t border-slate-800 hover:bg-slate-800/40 cursor-pointer ${r.watched ? "bg-amber-500/[0.03]" : ""}`}
                       onClick={() => nav(`/console/entities/${encodeURIComponent(r.name)}`)}
                       data-testid={`entity-row-${i}`}>
+                    <td className="py-2 px-2 text-center" onClick={(e) => e.stopPropagation()}>
+                      <button onClick={(e) => toggleWatch(e, r.name)}
+                              data-testid={`star-${i}`}
+                              className="p-1 rounded hover:bg-slate-800/60 transition-colors"
+                              title={r.watched ? "Remove from watchlist" : "Add to watchlist"}>
+                        <Star className={`w-4 h-4 ${r.watched ? "fill-amber-400 text-amber-400" : "text-slate-600 hover:text-amber-300"}`} />
+                      </button>
+                    </td>
                     <td className="py-2 px-3 text-slate-100 max-w-xs truncate" title={r.name}>{r.name}</td>
                     <td className="py-2 px-3 text-right font-mono text-slate-100">{r.count}</td>
                     <td className="py-2 px-3 text-right font-mono text-xs text-slate-200">{fmtPHP(r.budget)}</td>
