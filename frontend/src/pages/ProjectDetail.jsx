@@ -50,10 +50,10 @@ export default function ProjectDetail() {
   };
 
   const downloadMemo = () => {
-    const token = localStorage.getItem("mt_token");
+    // Cookie-based auth: the httpOnly access_token cookie set on /auth/login
+    // is included automatically on same-origin requests, so no token in URL.
     const base = process.env.REACT_APP_BACKEND_URL;
-    const url = `${base}/api/projects/${id}/memo.pdf?token=${encodeURIComponent(token || "")}`;
-    window.open(url, "_blank");
+    window.open(`${base}/api/projects/${id}/memo.pdf`, "_blank");
     toast.success("PDF Case Memo generated");
   };
 

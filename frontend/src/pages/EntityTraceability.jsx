@@ -7,6 +7,7 @@ import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
 import { toast } from "sonner";
 import { Users, Search, Download, ArrowUpDown, ArrowUp, ArrowDown, Star } from "lucide-react";
+import { WatchlistDigest } from "../components/WatchlistDigest";
 
 const ALERT_LABELS = { 1: "Green", 2: "Yellow", 3: "Orange", 4: "Red" };
 
@@ -143,6 +144,8 @@ export default function EntityTraceability() {
           <TotalCard label="Red Alerts" value={totals.red.toLocaleString()} tint="text-red-400" />
           <TotalCard label="Orange Alerts" value={totals.orange.toLocaleString()} tint="text-orange-400" />
         </div>
+
+        <WatchlistDigest />
 
         <Card className="p-3 bg-[#111827] border-slate-800">
           <div className="relative">

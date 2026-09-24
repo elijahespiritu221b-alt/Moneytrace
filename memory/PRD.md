@@ -40,6 +40,16 @@ Rule-based public expenditure screening for Cagayan de Oro City & Misamis Orient
 - ✅ **Notification Center**: fan-out on new complaints, new change requests, and green→red alert transitions. New endpoints `GET /api/notifications`, `GET /api/notifications/unread-count`, `POST /api/notifications/{id}/read`, `POST /api/notifications/read-all`. Bell icon in `ConsoleLayout` header with unread badge, dropdown panel, mark-all-read, per-item click routes to source (e.g. `/console/complaints`, `/console/requests`, `/console/projects/{id}`). Auto-polls every 25s. Requester is excluded from their own change-request notification.
 - ✅ **Entity Watchlist**: `db.entity_watchlist` per-user starred contractors. Endpoints `GET /api/watchlist` and `POST /api/watchlist/{name}` (toggle). Star column added to Entity Traceability with per-row toggle + tinted watched rows; watched entities are pinned to the top regardless of user sort. Star button also on Entity Detail page next to the entity name. `/api/entities` and `/api/entities/{name}` now return `watched: bool` scoped to the current user.
 
+## Implemented (Phase 4 — Security Hardening, Feb 2026)
+- ✅ **CORS locked down**: env-driven allowlist (defaults: preview URL + `http://localhost:3000`). Wildcard is explicitly rejected because `allow_credentials=True` requires an origin allowlist. Methods and headers narrowed from `*` to the exact set used.
+- ✅ **Security headers middleware** on every response: `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` (blocks geo/mic/camera/payments).
+- ✅ **Login brute-force protection**: 5 attempts / IP / 15 min → HTTP 429. Per-email soft lockout: 5 failed attempts → 30-min lock (`db.login_lockouts`). Success clears state.
+- ✅ **Public complaint spam guard**: 3 / IP / hour + 10 / IP / day → HTTP 429. Payload size cap (title ≤ 300, description ≤ 5000).
+- ✅ **JWT hardening**: `?token=` query param removed from PDF memo endpoint (was leaking to logs/history/referrer). Cookie-only auth for all endpoints. `access_token` no longer returned in login response body. `localStorage.mt_token` removed from the frontend entirely (`auth-context.jsx`, `api.js`, `ProjectDetail.jsx`). Startup fail-fast if `JWT_SECRET < 32 chars`.
+- ✅ **Field allowlists on write endpoints**: `PATCH /projects/{id}/direct` limited to `{description, status, geo_verified, published, monitoring_unit_type, monitoring_unit}`. `POST /change-requests` limited to `{current_budget, end_date, contractor, status, actual_end_date, cost_per_unit, unit_metric}`. Any other field returns 400.
+- ✅ **ReDoS defense**: user-supplied `q=` on `/projects` and `/public/projects` is now `re.escape`'d and length-capped before being passed as `$regex`.
+- ✅ **Coarse API throttle**: 240 requests / IP / minute across all `/api/*` as a background defense against generic API abuse.
+
 ## Deferred (v2 backlog)
 - Full role model: PM / Finance / Procurement / Inspector / Records officers
 - Citizen reporting on public portal (needs captcha + AI pre-moderation + human review)

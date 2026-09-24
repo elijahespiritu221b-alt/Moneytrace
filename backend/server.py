@@ -6,12 +6,16 @@ ROOT = Path(__file__).parent
 load_dotenv(ROOT / ".env")
 
 import os
+import re
+import time
 import logging
-from datetime import datetime, timezone
+from collections import deque
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Any
 
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Response
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel
 
@@ -41,6 +45,92 @@ api = APIRouter(prefix="/api")
 
 log = logging.getLogger("moneytrace")
 logging.basicConfig(level=logging.INFO)
+
+
+# ---------- Security: startup checks ----------
+_jwt_secret = os.environ.get("JWT_SECRET", "")
+if len(_jwt_secret) < 32:
+    raise RuntimeError(
+        "JWT_SECRET must be at least 32 characters. Set a strong random value in backend/.env."
+    )
+
+
+# ---------- Security: helpers ----------
+def _client_ip(request: Request) -> str:
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        return xff.split(",")[0].strip()[:64]
+    return (request.client.host if request.client else "unknown")[:64]
+
+
+def _safe_regex(q: str) -> str:
+    """Escape user-supplied search input for Mongo $regex to prevent ReDoS
+    and unintended pattern matching. Only alphanumerics + spaces remain
+    'regex-special'; everything else is literal."""
+    return re.escape((q or "")[:120])
+
+
+# Field allowlists — refuse any write to a field not on the list.
+DIRECT_EDIT_FIELDS = {
+    "description", "status", "geo_verified", "published",
+    "monitoring_unit_type", "monitoring_unit",
+}
+CHANGE_REQUEST_FIELDS = {
+    "current_budget", "end_date", "contractor", "status",
+    "actual_end_date", "cost_per_unit", "unit_metric",
+}
+
+
+# ---------- Security: rate limiting (in-memory sliding window per IP/key) ----------
+_RL_BUCKETS: dict[str, deque] = {}
+
+def _rate_limit(key: str, limit: int, window_sec: int):
+    """Raise 429 if `key` has exceeded `limit` events in the last `window_sec`."""
+    now = time.time()
+    dq = _RL_BUCKETS.setdefault(key, deque())
+    cutoff = now - window_sec
+    while dq and dq[0] < cutoff:
+        dq.popleft()
+    if len(dq) >= limit:
+        retry_after = int(window_sec - (now - dq[0])) + 1
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many requests. Retry in {retry_after}s.",
+            headers={"Retry-After": str(retry_after)},
+        )
+    dq.append(now)
+
+
+# ---------- Security: middleware (headers + basic API rate limit) ----------
+class SecurityMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # Coarse per-IP request cap: 240 req/min per IP for /api/*
+        # (Adjust upward if you get complaints; 4 rps sustained per IP is generous.)
+        if request.url.path.startswith("/api"):
+            try:
+                _rate_limit(f"ip:{_client_ip(request)}", 240, 60)
+            except HTTPException as e:
+                return Response(status_code=e.status_code,
+                                content=(e.detail or "").encode(),
+                                headers=e.headers or {})
+        response = await call_next(request)
+        # Security headers
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "geolocation=(), microphone=(), camera=(), payment=()",
+        )
+        # HSTS: only meaningful over HTTPS
+        response.headers.setdefault(
+            "Strict-Transport-Security",
+            "max-age=31536000; includeSubDomains",
+        )
+        return response
+
+
+app.add_middleware(SecurityMiddleware)
 
 
 # ---------- Helpers ----------
@@ -178,21 +268,63 @@ async def startup():
 
 
 # ---------- Auth ----------
+LOGIN_MAX_ATTEMPTS = 5
+LOGIN_WINDOW_SEC = 15 * 60
+LOGIN_LOCKOUT_SEC = 30 * 60
+
+
 @api.post("/auth/login")
-async def login(body: LoginRequest, response: Response):
+async def login(body: LoginRequest, request: Request, response: Response):
     email = body.email.lower().strip()
+    ip = _client_ip(request)
+
+    # Per-IP throttle: 5 login attempts / 15 min
+    _rate_limit(f"login-ip:{ip}", LOGIN_MAX_ATTEMPTS, LOGIN_WINDOW_SEC)
+
+    # Per-email soft lockout: after 5 failed attempts, block for 30 min
+    lockout = await db.login_lockouts.find_one({"email": email}, {"_id": 0})
+    if lockout and lockout.get("locked_until"):
+        try:
+            until = datetime.fromisoformat(lockout["locked_until"])
+        except Exception:
+            until = None
+        if until and until > datetime.now(timezone.utc):
+            remaining = int((until - datetime.now(timezone.utc)).total_seconds())
+            raise HTTPException(
+                status_code=429,
+                detail=f"Account temporarily locked. Try again in {remaining}s.",
+                headers={"Retry-After": str(remaining)},
+            )
+
     user = await db.users.find_one({"email": email})
     if not user or not verify_password(body.password, user["password_hash"]):
+        # Track failed attempt for this email
+        fails = ((lockout or {}).get("fails") or 0) + 1
+        update = {"email": email, "fails": fails,
+                  "last_fail_at": now_utc().isoformat()}
+        if fails >= LOGIN_MAX_ATTEMPTS:
+            update["locked_until"] = (
+                datetime.now(timezone.utc) + timedelta(seconds=LOGIN_LOCKOUT_SEC)
+            ).isoformat()
+            update["fails"] = 0  # reset counter once locked
+        await db.login_lockouts.update_one(
+            {"email": email}, {"$set": update}, upsert=True,
+        )
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    # Success: clear any prior lockout state
+    await db.login_lockouts.delete_one({"email": email})
+
     token = create_access_token(user["id"], user["email"], user["role"])
     response.set_cookie(
         key="access_token", value=token, httponly=True, secure=True,
         samesite="none", max_age=86400, path="/",
     )
     await _log_audit("LOGIN", actor=user)
+    # NOTE: access_token intentionally NOT returned in body — cookie only.
     return {
         "id": user["id"], "email": user["email"], "name": user["name"],
-        "role": user["role"], "access_token": token,
+        "role": user["role"],
     }
 
 
@@ -224,7 +356,7 @@ async def list_projects(
     if project_type: query["project_type"] = project_type
     if status: query["status"] = status
     if published_only: query["published"] = True
-    if q: query["title"] = {"$regex": q, "$options": "i"}
+    if q: query["title"] = {"$regex": _safe_regex(q), "$options": "i"}
     # For flag & alert_level filters, we need to join with project_flags — pull matching IDs first
     if alert_level or flag:
         fq: dict = {}
@@ -254,14 +386,14 @@ async def get_project(pid: str, user: dict = Depends(get_current_user)):
 @api.get("/projects/{pid}/memo.pdf")
 async def project_memo_pdf(pid: str, request: Request):
     """Case memo PDF: project detail + flags + AI advisory (latest) + audit trail.
-    Auth accepted via cookie, Authorization header, or ?token= query param
-    (needed for direct <a href> downloads in the browser)."""
+    Auth accepted ONLY via httpOnly cookie or Authorization header — never a
+    URL query param (which would leak the token into logs, history, and
+    referrer headers)."""
     token = request.cookies.get("access_token")
     if not token:
         h = request.headers.get("Authorization", "")
-        if h.startswith("Bearer "): token = h[7:]
-    if not token:
-        token = request.query_params.get("token")
+        if h.startswith("Bearer "):
+            token = h[7:]
     if not token:
         raise HTTPException(401, "Not authenticated")
     from auth import _decode
@@ -291,7 +423,13 @@ class ProjectPatch(BaseModel):
 
 @api.patch("/projects/{pid}/direct")
 async def direct_patch(pid: str, body: ProjectPatch, user: dict = Depends(require_role("admin"))):
-    """Direct admin edit (non-sensitive fields). For sensitive fields use /change-requests."""
+    """Direct admin edit (non-sensitive fields only). For sensitive fields use /change-requests."""
+    if body.field not in DIRECT_EDIT_FIELDS:
+        raise HTTPException(
+            400,
+            f"Field '{body.field}' is not allowed for direct edit. "
+            f"Allowed: {sorted(DIRECT_EDIT_FIELDS)}",
+        )
     p = await db.projects.find_one({"id": pid}, {"_id": 0})
     if not p:
         raise HTTPException(404, "Project not found")
@@ -329,6 +467,12 @@ class ChangeRequestCreate(BaseModel):
 
 @api.post("/change-requests")
 async def create_change_request(body: ChangeRequestCreate, user: dict = Depends(get_current_user)):
+    if body.field not in CHANGE_REQUEST_FIELDS:
+        raise HTTPException(
+            400,
+            f"Field '{body.field}' is not allowed in a change request. "
+            f"Allowed: {sorted(CHANGE_REQUEST_FIELDS)}",
+        )
     p = await db.projects.find_one({"id": body.project_id}, {"_id": 0})
     if not p:
         raise HTTPException(404, "Project not found")
@@ -555,7 +699,7 @@ async def public_projects(response: Response, limit: int = 500, offset: int = 0,
     query: dict = {"published": True}
     if municipality: query["municipality"] = municipality
     if department: query["department"] = department
-    if q: query["title"] = {"$regex": q, "$options": "i"}
+    if q: query["title"] = {"$regex": _safe_regex(q), "$options": "i"}
     if alert_level:
         matching = [f["project_id"] async for f in db.project_flags.find({"alert_level": alert_level}, {"project_id": 1})]
         query["id"] = {"$in": matching}
@@ -676,6 +820,13 @@ async def submit_complaint(body: ComplaintCreate, request: Request):
         raise HTTPException(400, "Title must be at least 5 characters.")
     if len(body.description.strip()) < 20:
         raise HTTPException(400, "Please provide at least 20 characters of description.")
+    # Reject payloads that are unreasonably large (defense-in-depth vs 10k Pydantic)
+    if len(body.title) > 300 or len(body.description) > 5000:
+        raise HTTPException(400, "Content exceeds allowed size.")
+    # Rate limit spam / abuse: 3 per IP per hour, 10 per IP per day
+    ip = _client_ip(request)
+    _rate_limit(f"complaint-hr:{ip}", 3, 3600)
+    _rate_limit(f"complaint-day:{ip}", 10, 86400)
     entry = {
         "id": gen_id(),
         "created_at": now_utc().isoformat(),
@@ -795,6 +946,128 @@ async def get_watchlist(user: dict = Depends(get_current_user)):
         {"user_id": user["id"]}, {"_id": 0}
     ).sort("starred_at", -1).to_list(500)
     return items
+
+
+@api.get("/watchlist/digest")
+async def watchlist_digest(since_hours: int = 24, user: dict = Depends(get_current_user)):
+    """Per-watched-entity summary of recent activity: new red/orange alerts,
+    new complaints, new change requests, new AI reviews.
+    Returns entities the current user has starred plus their tallies in the window."""
+    since_hours = max(1, min(since_hours, 24 * 30))
+    cutoff = (now_utc() - timedelta(hours=since_hours)).isoformat()
+
+    starred = await db.entity_watchlist.find(
+        {"user_id": user["id"]}, {"_id": 0}
+    ).sort("starred_at", -1).to_list(500)
+    if not starred:
+        return {"since_hours": since_hours, "cutoff": cutoff, "entities": []}
+
+    names = [w["entity_name"] for w in starred]
+
+    # Project IDs grouped by contractor
+    proj_by_entity: dict = {n: [] for n in names}
+    proj_meta: dict = {}
+    async for p in db.projects.find({"contractor": {"$in": names}}, {"_id": 0, "id": 1, "contractor": 1, "title": 1}):
+        proj_by_entity.setdefault(p["contractor"], []).append(p["id"])
+        proj_meta[p["id"]] = p
+
+    starred_at_by_name = {w["entity_name"]: w.get("starred_at") for w in starred}
+
+    entities = []
+    for name in names:
+        pids = proj_by_entity.get(name, [])
+        if not pids:
+            entities.append({
+                "entity_name": name,
+                "starred_at": starred_at_by_name.get(name),
+                "project_count": 0,
+                "new_red": 0, "new_orange": 0,
+                "new_complaints": 0, "new_change_requests": 0, "new_ai_reviews": 0,
+                "total": 0,
+                "highlights": [],
+            })
+            continue
+
+        # New red / orange alerts computed in window
+        new_red = await db.project_flags.count_documents({
+            "project_id": {"$in": pids},
+            "alert_level": "red",
+            "computed_at": {"$gte": cutoff},
+        })
+        new_orange = await db.project_flags.count_documents({
+            "project_id": {"$in": pids},
+            "alert_level": "orange",
+            "computed_at": {"$gte": cutoff},
+        })
+        new_complaints = await db.complaints.count_documents({
+            "project_id": {"$in": pids},
+            "created_at": {"$gte": cutoff},
+        })
+        new_change_requests = await db.change_requests.count_documents({
+            "project_id": {"$in": pids},
+            "requested_at": {"$gte": cutoff},
+        })
+        new_ai_reviews = await db.ai_reviews.count_documents({
+            "project_id": {"$in": pids},
+            "created_at": {"$gte": cutoff},
+        })
+
+        # Highlights: up to 3 most recent items across streams
+        highlights = []
+        async for c in db.complaints.find(
+            {"project_id": {"$in": pids}, "created_at": {"$gte": cutoff}},
+            {"_id": 0, "id": 1, "title": 1, "project_id": 1, "created_at": 1, "category": 1},
+        ).sort("created_at", -1).limit(3):
+            highlights.append({
+                "kind": "complaint",
+                "text": f"[{c.get('category', '—')}] {c.get('title', '')[:90]}",
+                "at": c.get("created_at"),
+                "project_id": c.get("project_id"),
+                "link": "/console/complaints",
+            })
+        async for cr in db.change_requests.find(
+            {"project_id": {"$in": pids}, "requested_at": {"$gte": cutoff}},
+            {"_id": 0, "id": 1, "field": 1, "project_id": 1, "requested_at": 1, "ai_risk": 1, "status": 1},
+        ).sort("requested_at", -1).limit(3):
+            title = (proj_meta.get(cr.get("project_id"), {}).get("title") or "")[:70]
+            highlights.append({
+                "kind": "change_request",
+                "text": f"Edit `{cr.get('field')}` on {title} · {cr.get('status')} · AI risk: {cr.get('ai_risk', '—')}",
+                "at": cr.get("requested_at"),
+                "project_id": cr.get("project_id"),
+                "link": "/console/requests",
+            })
+        async for r in db.ai_reviews.find(
+            {"project_id": {"$in": pids}, "created_at": {"$gte": cutoff}},
+            {"_id": 0, "id": 1, "project_id": 1, "created_at": 1, "risk": 1, "model": 1},
+        ).sort("created_at", -1).limit(3):
+            title = (proj_meta.get(r.get("project_id"), {}).get("title") or "")[:70]
+            highlights.append({
+                "kind": "ai_review",
+                "text": f"AI advisory ({r.get('risk', '—')} risk) on {title}",
+                "at": r.get("created_at"),
+                "project_id": r.get("project_id"),
+                "link": f"/console/projects/{r.get('project_id')}",
+            })
+        highlights.sort(key=lambda h: h.get("at") or "", reverse=True)
+        highlights = highlights[:4]
+
+        total = new_red + new_orange + new_complaints + new_change_requests + new_ai_reviews
+        entities.append({
+            "entity_name": name,
+            "starred_at": starred_at_by_name.get(name),
+            "project_count": len(pids),
+            "new_red": new_red,
+            "new_orange": new_orange,
+            "new_complaints": new_complaints,
+            "new_change_requests": new_change_requests,
+            "new_ai_reviews": new_ai_reviews,
+            "total": total,
+            "highlights": highlights,
+        })
+
+    entities.sort(key=lambda e: (-e["total"], -(e["new_red"] * 10 + e["new_complaints"] * 5)))
+    return {"since_hours": since_hours, "cutoff": cutoff, "entities": entities}
 
 
 @api.post("/watchlist/{name}")
@@ -999,13 +1272,27 @@ async def root():
 
 app.include_router(api)
 
+# CORS — env-driven allowlist. Wildcard is REJECTED when credentials are allowed.
+_cors_env = (os.environ.get("CORS_ORIGINS") or "").strip()
+_default_origins = [
+    "https://project-audit-hub-5.preview.emergentagent.com",
+    "http://localhost:3000",
+]
+if _cors_env and _cors_env != "*":
+    _cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip() and o.strip() != "*"]
+else:
+    _cors_origins = _default_origins
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_cors_origins,
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+    expose_headers=["X-Total-Count"],
+    max_age=600,
 )
+log.info(f"CORS origins locked to: {_cors_origins}")
 
 
 @app.on_event("shutdown")
