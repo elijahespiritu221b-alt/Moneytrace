@@ -14,6 +14,7 @@ import Complaints from "./pages/Complaints";
 import EntityTraceability from "./pages/EntityTraceability";
 import EntityDetail from "./pages/EntityDetail";
 import ProjectMapPage from "./pages/ProjectMapPage";
+import SecurityAlerts from "./pages/SecurityAlerts";
 import PublicPortal from "./pages/PublicPortal";
 import PublicProjectDetail from "./pages/PublicProjectDetail";
 
@@ -55,6 +56,7 @@ function App() {
           <Route path="/console/complaints" element={<Protected><Complaints /></Protected>} />
           <Route path="/console/audit" element={<Protected><AuditLog /></Protected>} />
           <Route path="/console/rules" element={<Protected role="admin"><RuleConfig /></Protected>} />
+          <Route path="/console/security" element={<Protected role="admin"><SecurityAlerts /></Protected>} />
           <Route path="*" element={<Navigate to="/public" replace />} />
         </Routes>
       </BrowserRouter>

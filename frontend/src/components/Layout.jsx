@@ -8,7 +8,7 @@ import {
   ClipboardList, Sparkles, ShieldCheck, AlertOctagon,
   DollarSign, CreditCard, CalendarClock, Clock,
   ScanSearch, Map, Users, Sliders, ScrollText, Megaphone,
-  LogOut, Globe, GraduationCap, HardHat, Stethoscope,
+  LogOut, Globe, GraduationCap, HardHat, Stethoscope, ShieldAlert,
 } from "lucide-react";
 
 export function ConsoleLayout({ children }) {
@@ -110,6 +110,7 @@ export function ConsoleLayout({ children }) {
               <Section title="Administration">
                 <Item to="/console/rules" icon={Sliders} label="Rule Configuration" testid="nav-rules" />
                 <Item to="/console/audit" icon={ScrollText} label="Audit Trail" testid="nav-audit" />
+                <Item to="/console/security" icon={ShieldAlert} label="Security Alerts" testid="nav-security" />
               </Section>
             )}
           </nav>

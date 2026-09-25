@@ -8,6 +8,7 @@ load_dotenv(ROOT / ".env")
 import os
 import re
 import time
+import asyncio
 import logging
 from collections import deque
 from datetime import datetime, timezone, timedelta
@@ -30,6 +31,7 @@ from auth import (
 from flag_engine import compute_all_flags, compute_flags_for, _mean_cost_by_type
 from seed_data import build_seed_projects
 import ai_service
+import whatsapp_alerts
 from pdf_memo import render_case_memo
 from fastapi.responses import StreamingResponse
 from io import BytesIO
@@ -110,6 +112,11 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             try:
                 _rate_limit(f"ip:{_client_ip(request)}", 240, 60)
             except HTTPException as e:
+                ip = _client_ip(request)
+                asyncio.create_task(whatsapp_alerts.dispatch_security_alert(
+                    db, "api_flood", "An IP exceeded 240 requests/minute (possible scraping or DoS).",
+                    {"IP": ip, "Path": request.url.path[:80]}, debounce_key=f"flood:{ip}",
+                ))
                 return Response(status_code=e.status_code,
                                 content=(e.detail or "").encode(),
                                 headers=e.headers or {})
@@ -271,6 +278,7 @@ async def startup():
 LOGIN_MAX_ATTEMPTS = 5
 LOGIN_WINDOW_SEC = 15 * 60
 LOGIN_LOCKOUT_SEC = 30 * 60
+LOGIN_IP_MAX_ATTEMPTS = 30  # shared NAT / office IPs must not lock everyone out
 
 
 @api.post("/auth/login")
@@ -278,8 +286,15 @@ async def login(body: LoginRequest, request: Request, response: Response):
     email = body.email.lower().strip()
     ip = _client_ip(request)
 
-    # Per-IP throttle: 5 login attempts / 15 min
-    _rate_limit(f"login-ip:{ip}", LOGIN_MAX_ATTEMPTS, LOGIN_WINDOW_SEC)
+    # Per-IP throttle: 30 login attempts / 15 min (brute-force guard)
+    try:
+        _rate_limit(f"login-ip:{ip}", LOGIN_IP_MAX_ATTEMPTS, LOGIN_WINDOW_SEC)
+    except HTTPException:
+        asyncio.create_task(whatsapp_alerts.dispatch_security_alert(
+            db, "brute_force_ip", "An IP exceeded 30 login attempts in 15 minutes.",
+            {"IP": ip, "Last email tried": email}, debounce_key=f"bf-ip:{ip}",
+        ))
+        raise
 
     # Per-email soft lockout: after 5 failed attempts, block for 30 min
     lockout = await db.login_lockouts.find_one({"email": email}, {"_id": 0})
@@ -310,6 +325,14 @@ async def login(body: LoginRequest, request: Request, response: Response):
         await db.login_lockouts.update_one(
             {"email": email}, {"$set": update}, upsert=True,
         )
+        if fails >= LOGIN_MAX_ATTEMPTS:
+            await _log_audit("ACCOUNT_LOCKED", note=f"{email} locked after {fails} failed logins from {ip}")
+            asyncio.create_task(whatsapp_alerts.dispatch_security_alert(
+                db, "account_lockout",
+                f"Account locked for 30 min after {LOGIN_MAX_ATTEMPTS} failed password attempts.",
+                {"Account": email, "IP": ip, "Existing user": "yes" if user else "no"},
+                debounce_key=f"lock:{email}",
+            ))
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     # Success: clear any prior lockout state
@@ -1268,6 +1291,96 @@ async def entity_detail(name: str, user: dict = Depends(get_current_user)):
 @api.get("/")
 async def root():
     return {"service": "MONEYTRACE", "status": "ok"}
+
+
+# ---------- Security alerts: WhatsApp contacts (admin) ----------
+class AlertContactIn(BaseModel):
+    name: str
+    phone: str
+    title: Optional[str] = ""
+
+
+def _norm_phone(p: str) -> str:
+    p = re.sub(r"[\s\-()]", "", p or "")
+    if p.startswith("09") and len(p) == 11:
+        p = "+63" + p[1:]
+    if not re.fullmatch(r"\+[1-9]\d{7,14}", p):
+        raise HTTPException(status_code=400, detail="Phone must be E.164, e.g. +639171234567")
+    return p
+
+
+@api.get("/security/status")
+async def security_status(user: dict = Depends(require_role("admin"))):
+    return {
+        "whatsapp_configured": whatsapp_alerts.is_configured(),
+        "contacts": await db.alert_contacts.count_documents({}),
+        "incidents": await db.security_alerts.count_documents({}),
+        "rules": {
+            "account_lockout": f"{LOGIN_MAX_ATTEMPTS} failed passwords → 30 min lock",
+            "brute_force_ip": f"{LOGIN_IP_MAX_ATTEMPTS} login attempts / IP / 15 min",
+            "api_flood": "240 requests / IP / minute",
+        },
+    }
+
+
+@api.get("/security/contacts")
+async def list_contacts(user: dict = Depends(require_role("admin"))):
+    return await db.alert_contacts.find({}, {"_id": 0}).sort("created_at", 1).to_list(200)
+
+
+@api.post("/security/contacts", status_code=201)
+async def add_contact(body: AlertContactIn, user: dict = Depends(require_role("admin"))):
+    phone = _norm_phone(body.phone)
+    if await db.alert_contacts.find_one({"phone": phone}):
+        raise HTTPException(status_code=409, detail="This number is already registered")
+    doc = {"id": gen_id(), "name": body.name.strip()[:80], "title": (body.title or "").strip()[:80],
+           "phone": phone, "enabled": True, "created_by": user["email"],
+           "created_at": now_utc().isoformat()}
+    await db.alert_contacts.insert_one(dict(doc))
+    await _log_audit("ALERT_CONTACT_ADDED", actor=user, note=f"{doc['name']} {phone}")
+    return doc
+
+
+@api.patch("/security/contacts/{cid}")
+async def toggle_contact(cid: str, user: dict = Depends(require_role("admin"))):
+    c = await db.alert_contacts.find_one({"id": cid}, {"_id": 0})
+    if not c:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    await db.alert_contacts.update_one({"id": cid}, {"$set": {"enabled": not c["enabled"]}})
+    c["enabled"] = not c["enabled"]
+    return c
+
+
+@api.delete("/security/contacts/{cid}")
+async def delete_contact(cid: str, user: dict = Depends(require_role("admin"))):
+    r = await db.alert_contacts.delete_one({"id": cid})
+    if not r.deleted_count:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    await _log_audit("ALERT_CONTACT_REMOVED", actor=user, note=cid)
+    return {"ok": True}
+
+
+@api.post("/security/contacts/{cid}/test")
+async def test_contact(cid: str, user: dict = Depends(require_role("admin"))):
+    c = await db.alert_contacts.find_one({"id": cid}, {"_id": 0})
+    if not c:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    res = await whatsapp_alerts.send_whatsapp(
+        c["phone"], f"✅ MONEYTRACE test alert. Hi {c['name']}, your number is registered for security alerts.")
+    return res
+
+
+@api.get("/security/alerts")
+async def list_security_alerts(user: dict = Depends(require_role("admin"))):
+    return await db.security_alerts.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
+
+
+@api.post("/security/alerts/simulate")
+async def simulate_alert(user: dict = Depends(require_role("admin"))):
+    inc = await whatsapp_alerts.dispatch_security_alert(
+        db, "simulation", "Manual test triggered by an administrator.",
+        {"Triggered by": user["email"]})
+    return inc
 
 
 app.include_router(api)
