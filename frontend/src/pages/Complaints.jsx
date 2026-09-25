@@ -5,9 +5,10 @@ import { Card } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { Megaphone, Mail, User as UserIcon, MapPin, Building2 } from "lucide-react";
+import { Megaphone, Mail, User as UserIcon, Building2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
+import { useAuth } from "../lib/auth-context";
 
 const STATUS_COLOR = {
   new: "text-sky-400 border-sky-500/40 bg-sky-500/10",
@@ -25,6 +26,7 @@ const CATEGORY_COLOR = {
 };
 
 export default function Complaints() {
+  const { user } = useAuth();
   const [items, setItems] = useState([]);
   const [stats, setStats] = useState({ new: 0, under_review: 0, resolved: 0, dismissed: 0 });
   const [tab, setTab] = useState("new");
@@ -48,6 +50,17 @@ export default function Complaints() {
       load();
     } catch (e) {
       toast.error(e.response?.data?.detail || "Failed");
+    }
+  };
+
+  const remove = async (c) => {
+    if (!window.confirm(`Permanently delete "${c.title}"? This cannot be undone.`)) return;
+    try {
+      await api.delete(`/complaints/${c.id}`);
+      toast.success("Complaint deleted");
+      load();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Delete failed");
     }
   };
 
@@ -117,8 +130,9 @@ export default function Complaints() {
                     </div>
                   )}
                 </div>
+                <div className="flex flex-col gap-2 min-w-[180px]">
                 {c.status !== "resolved" && c.status !== "dismissed" && (
-                  <div className="flex flex-col gap-2 min-w-[180px]">
+                  <>
                     <Textarea
                       placeholder="Reviewer notes (optional)…"
                       value={notesMap[c.id] || ""}
@@ -137,8 +151,14 @@ export default function Complaints() {
                     <Button onClick={() => decide(c.id, "dismissed")} size="sm" variant="outline" className="border-slate-700 text-slate-300 hover:bg-slate-800" data-testid={`complaint-dismiss-${c.id}`}>
                       Dismiss
                     </Button>
-                  </div>
+                  </>
                 )}
+                {user?.role === "admin" && (
+                  <Button onClick={() => remove(c)} size="sm" variant="ghost" className="text-red-400 hover:text-red-300 hover:bg-red-500/10" data-testid={`complaint-delete-${c.id}`}>
+                    <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete
+                  </Button>
+                )}
+                </div>
               </div>
             </Card>
           ))}

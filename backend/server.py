@@ -919,6 +919,17 @@ async def decide_complaint(cid: str, body: ComplaintDecision, user: dict = Depen
     return {"ok": True}
 
 
+@api.delete("/complaints/{cid}")
+async def delete_complaint(cid: str, user: dict = Depends(require_role("admin"))):
+    c = await db.complaints.find_one({"id": cid}, {"_id": 0})
+    if not c:
+        raise HTTPException(404, "Complaint not found")
+    await db.complaints.delete_one({"id": cid})
+    await _log_audit("COMPLAINT_DELETED", actor=user, project_id=c.get("project_id"),
+                     note=f"Deleted complaint {cid[:8]}: {c.get('title', '')[:80]}")
+    return {"ok": True}
+
+
 @api.get("/complaints/stats")
 async def complaints_stats(user: dict = Depends(get_current_user)):
     counts = {"new": 0, "under_review": 0, "resolved": 0, "dismissed": 0}
