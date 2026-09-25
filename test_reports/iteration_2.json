@@ -1,0 +1,50 @@
+{
+  "summary": "MONEYTRACE P0 login fix + WhatsApp Security Alerts feature fully verified end-to-end. Backend pytest 9/9 pass (cookie auth, /auth/me, wrong-password 401, admin /security endpoints with reviewer 403, contact CRUD with PH-mobile normalization to +63, duplicate 409, invalid phone 400, patch toggle, test send returns 'not_configured', simulate creates incident with delivery list, delete then 404, account_lockout after 5 fails + 429 on 6th + account_lockout incident recorded). Frontend Playwright: admin login redirects to /console, /console/projects loads data, nav-security visible for admin, /console/security banner 'Twilio WhatsApp is NOT configured' shown, 3 rule cards render, add-contact form works, test button shows Removed/Warning toast (not_configured), simulate-alert-button adds incident to incidents-list, delete removes contact. Reviewer login: nav-security absent, direct navigation to /console/security redirects to /console.",
+  "tested_scope": ["backend", "frontend", "integration", "auth", "rbac"],
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Console top-right header (when admin)", "issues": ["A pill/badge showing 'REVIEWER CONSOLE' appears in the top bar even when logged in as the admin user (elijahespiritu221b@gmail.com). Sidebar and permissions are correct (Administration → Rule Configuration + Security Alerts visible, admin actions work), so this looks like a purely cosmetic mis-label of the role badge in Layout.jsx header. Should read 'ADMIN CONSOLE' for admin role."]}
+    ]
+  },
+  "passed": [
+    "POST /api/auth/login sets HttpOnly access_token cookie",
+    "GET /api/auth/me works with cookie",
+    "POST /api/auth/login wrong password -> 401",
+    "5 wrong-password attempts for throwaway email -> 401 each, 6th -> 429 'Account temporarily locked'",
+    "account_lockout incident appears in GET /api/security/alerts (admin)",
+    "GET /api/security/status: whatsapp_configured=false, rules object present",
+    "POST /api/security/contacts phone '09171234567' normalized to '+639171234567' (201)",
+    "POST /api/security/contacts duplicate -> 409",
+    "POST /api/security/contacts invalid phone 'abc' -> 400",
+    "GET /api/security/contacts lists contact",
+    "PATCH /api/security/contacts/{id} toggles enabled",
+    "POST /api/security/contacts/{id}/test returns status='not_configured'",
+    "POST /api/security/alerts/simulate creates incident, deliveries includes our contact",
+    "DELETE /api/security/contacts/{id} -> 200; repeat -> 404",
+    "Reviewer role -> 403 on /security/status and /security/contacts",
+    "Frontend: admin login -> /console, /console/projects loads",
+    "Frontend: nav-security visible only for admin; /console/security banner + 3 rule cards + add/test/simulate/delete flows work",
+    "Frontend: reviewer nav-security absent; direct /console/security redirects to /console"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_security_alerts.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Cosmetic: fix role badge in the top header (Layout.jsx) to render 'ADMIN CONSOLE' for admin instead of 'REVIEWER CONSOLE'. Functionality is unaffected."
+  ],
+  "critical_code_review_comments": [
+    "whatsapp_alerts.dispatch_security_alert() is invoked via asyncio.create_task inside login() but references the module-level `db`. Fine here but could double-fire if login handler is retried; consider using an event/queue if scale grows.",
+    "In-memory _ALERT_COOLDOWN and _rate_limit buckets reset on backend restart — acceptable but worth noting for multi-replica deployments (need Redis)."
+  ],
+  "updated_files": ["/app/backend/tests/test_security_alerts.py"],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% of tested flows"},
+  "test_credentials": "Used admin elijahespiritu221b@gmail.com and reviewer reviewer@moneytrace.gov.ph from /app/memory/test_credentials.md. Throwaway victim-test-*@x.com emails were used for the lockout test.",
+  "seed_data_creation": "None. Test contacts and login_lockouts cleaned up via mongosh moneytrace_db after tests.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend regression file is /app/backend/tests/test_security_alerts.py (pytest, parallel-safe). It uses REACT_APP_BACKEND_URL and cleans up its own contacts. Before running, clear stale state if needed: mongosh moneytrace_db --eval 'db.login_lockouts.deleteMany({}); db.alert_contacts.deleteMany({name:/^TEST/});'. Also, do not spam login as the admin email; use random victim-test-*@x.com for lockout scenarios (per-IP throttle is 30/15min)."
+}

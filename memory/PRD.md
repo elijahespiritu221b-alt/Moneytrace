@@ -50,6 +50,12 @@ Rule-based public expenditure screening for Cagayan de Oro City & Misamis Orient
 - ✅ **ReDoS defense**: user-supplied `q=` on `/projects` and `/public/projects` is now `re.escape`'d and length-capped before being passed as `$regex`.
 - ✅ **Coarse API throttle**: 240 requests / IP / minute across all `/api/*` as a background defense against generic API abuse.
 
+## Implemented (Phase 5 — Login fix + WhatsApp Security Alerts, Sep 2026)
+- ✅ **Login fix**: per-IP login throttle raised 5→30 attempts/15 min (shared NAT safe); stale `login_lockouts` cleared. Per-email 5-fail/30-min lock retained.
+- ✅ **WhatsApp security alerts** (`backend/whatsapp_alerts.py`, Twilio): dispatched on `account_lockout`, `brute_force_ip`, `api_flood`; 10-min debounce per key; incidents stored in `db.security_alerts`. Env: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM` — currently EMPTY so deliveries are `not_configured` (logged only).
+- ✅ **Alert contacts** (admin): `GET/POST /api/security/contacts`, `PATCH/DELETE /{id}`, `POST /{id}/test`, `GET /api/security/status`, `GET /api/security/alerts`, `POST /api/security/alerts/simulate`. PH `09…` numbers normalized to `+63`.
+- ✅ Admin page `/console/security` (sidebar "Security Alerts"). Tested: iteration_2.json 100% pass.
+
 ## Deferred (v2 backlog)
 - Full role model: PM / Finance / Procurement / Inspector / Records officers
 - Citizen reporting on public portal (needs captcha + AI pre-moderation + human review)
