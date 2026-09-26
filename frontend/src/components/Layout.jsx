@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useAuth } from "../lib/auth-context";
 import { Button } from "./ui/button";
 import { NotificationBell } from "./NotificationBell";
+import { FullscreenButton } from "./FullscreenButton";
 import {
   LayoutDashboard, Building2, ChevronDown, ChevronRight,
   ClipboardList, Sparkles, ShieldCheck, AlertOctagon,
@@ -35,6 +36,7 @@ export function ConsoleLayout({ children }) {
               <Globe className="w-3.5 h-3.5" /> Public Portal
             </NavLink>
             <NotificationBell />
+            <FullscreenButton className="text-slate-400 hover:text-slate-100" />
             <div className="hidden md:flex flex-col items-end">
               <div className="text-xs text-slate-200">{user?.name}</div>
               <div className="text-[10px] uppercase tracking-widest text-slate-500 flex items-center gap-1">
@@ -173,6 +175,7 @@ export function PublicLayout({ children }) {
           <div className="flex items-center gap-3">
             <NavLink to="/public" className="text-sm text-slate-600 hover:text-emerald-700" data-testid="public-nav-home">Home</NavLink>
             <NavLink to="/login" className="text-sm text-slate-600 hover:text-emerald-700" data-testid="public-nav-login">Reviewer Login</NavLink>
+            <FullscreenButton className="text-slate-600 hover:text-emerald-700" />
           </div>
         </div>
         <div className="bg-amber-50 border-t border-amber-200 text-amber-900 text-sm px-6 py-2.5 text-center">
