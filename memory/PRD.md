@@ -56,6 +56,14 @@ Rule-based public expenditure screening for Cagayan de Oro City & Misamis Orient
 - ✅ **Alert contacts** (admin): `GET/POST /api/security/contacts`, `PATCH/DELETE /{id}`, `POST /{id}/test`, `GET /api/security/status`, `GET /api/security/alerts`, `POST /api/security/alerts/simulate`. PH `09…` numbers normalized to `+63`.
 - ✅ Admin page `/console/security` (sidebar "Security Alerts"). Tested: iteration_2.json 100% pass.
 
+## Implemented (Phase 6 — Citizen accounts, moderation tools, Oct 2026)
+- ✅ **Citizen accounts** (`backend/citizen_auth.py`, cookie `citizen_token`, type `citizen`): register (name/email/phone/password, unique email+phone, PH 09→+63), login/logout/me, phone OTP (`resend-otp`, `verify-phone`). OTP via Twilio Verify when `TWILIO_VERIFY_SERVICE_SID` set; otherwise DEV MODE returns `dev_code` in response and shows it in UI.
+- ✅ **Report wall**: `POST /api/public/complaints` requires verified, non-banned citizen; 1 report/citizen/project (409); 3/day (429). Complaints store `citizen_id`, verified name/phone/email, `submitter_verified`; `anonymous` now = hide from public only.
+- ✅ Admin: `GET /api/citizens`, `PATCH /api/citizens/{id}/ban`; console Complaints shows Verified badge + phone, "Suspend reporter" + "Delete" (`DELETE /api/complaints/{id}`).
+- ✅ Public UI: `/public/account` (sign up / sign in / OTP step), header shows citizen name or "Citizen Sign in"; ComplaintForm gates on auth state.
+- ✅ Notification bell: per-item delete (`DELETE /api/notifications/{id}`) + Clear all (`DELETE /api/notifications`).
+- ✅ Browser fullscreen toggle in console + public headers. Tested: iteration_3.json all pass.
+
 ## Deferred (v2 backlog)
 - Full role model: PM / Finance / Procurement / Inspector / Records officers
 - Citizen reporting on public portal (needs captcha + AI pre-moderation + human review)
