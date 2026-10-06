@@ -63,6 +63,8 @@ Rule-based public expenditure screening for Cagayan de Oro City & Misamis Orient
 - ✅ Public UI: `/public/account` (sign up / sign in / OTP step), header shows citizen name or "Citizen Sign in"; ComplaintForm gates on auth state.
 - ✅ Notification bell: per-item delete (`DELETE /api/notifications/{id}`) + Clear all (`DELETE /api/notifications`).
 - ✅ Browser fullscreen toggle in console + public headers. Tested: iteration_3.json all pass.
+- ✅ **Citizens admin page** `/console/citizens` (admin): KPI filters (total/active/unverified/suspended/reports), search by name/email/phone, suspend/reinstate toggle. Uses `GET /api/citizens` + `PATCH /api/citizens/{id}/ban`.
+- ℹ️ Claude AI (`ai_service.py`) is LIVE via emergentintegrations: `claude-sonnet-5` for `/api/ai/review/{pid}` + change-request risk notes, `claude-haiku-4-5-20251001` for `/api/ai/summary/{pid}`. Only the 100 seeded demo reviews are canned text.
 
 ## Deferred (v2 backlog)
 - Full role model: PM / Finance / Procurement / Inspector / Records officers

@@ -114,6 +114,7 @@ export function ConsoleLayout({ children }) {
                 <Item to="/console/rules" icon={Sliders} label="Rule Configuration" testid="nav-rules" />
                 <Item to="/console/audit" icon={ScrollText} label="Audit Trail" testid="nav-audit" />
                 <Item to="/console/security" icon={ShieldAlert} label="Security Alerts" testid="nav-security" />
+                <Item to="/console/citizens" icon={UserCheck} label="Citizens" testid="nav-citizens" />
               </Section>
             )}
           </nav>
