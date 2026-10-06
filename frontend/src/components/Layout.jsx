@@ -9,8 +9,9 @@ import {
   ClipboardList, Sparkles, ShieldCheck, AlertOctagon,
   DollarSign, CreditCard, CalendarClock, Clock,
   ScanSearch, Map, Users, Sliders, ScrollText, Megaphone,
-  LogOut, Globe, GraduationCap, HardHat, Stethoscope, ShieldAlert,
+  LogOut, Globe, GraduationCap, HardHat, Stethoscope, ShieldAlert, UserCheck,
 } from "lucide-react";
+import { useCitizen } from "../lib/citizen-context";
 
 export function ConsoleLayout({ children }) {
   const { user, logout } = useAuth();
@@ -161,6 +162,7 @@ function SubItem({ to, icon: Icon, label, testid }) {
 }
 
 export function PublicLayout({ children }) {
+  const { citizen, logout: citizenLogout } = useCitizen();
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <header className="border-b border-slate-200 bg-white">
@@ -174,6 +176,14 @@ export function PublicLayout({ children }) {
           </div>
           <div className="flex items-center gap-3">
             <NavLink to="/public" className="text-sm text-slate-600 hover:text-emerald-700" data-testid="public-nav-home">Home</NavLink>
+            {citizen ? (
+              <span className="text-sm text-slate-700 inline-flex items-center gap-2" data-testid="public-nav-citizen">
+                <UserCheck className="w-4 h-4 text-emerald-600" /> {citizen.name}
+                <button onClick={citizenLogout} className="text-xs text-slate-500 hover:text-emerald-700 underline" data-testid="public-nav-citizen-logout">Sign out</button>
+              </span>
+            ) : (
+              <NavLink to="/public/account" className="text-sm font-semibold text-emerald-700 hover:text-emerald-800" data-testid="public-nav-citizen-signin">Citizen Sign in</NavLink>
+            )}
             <NavLink to="/login" className="text-sm text-slate-600 hover:text-emerald-700" data-testid="public-nav-login">Reviewer Login</NavLink>
             <FullscreenButton className="text-slate-600 hover:text-emerald-700" />
           </div>

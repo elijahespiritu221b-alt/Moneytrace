@@ -32,6 +32,7 @@ from flag_engine import compute_all_flags, compute_flags_for, _mean_cost_by_type
 from seed_data import build_seed_projects
 import ai_service
 import whatsapp_alerts
+import citizen_auth
 from pdf_memo import render_case_memo
 from fastapi.responses import StreamingResponse
 from io import BytesIO
@@ -831,25 +832,26 @@ class ComplaintCreate(BaseModel):
     category: str  # "Financial" | "Delay" | "Quality" | "Missing progress" | "Other"
     title: str
     description: str
-    submitter_name: Optional[str] = None
-    submitter_email: Optional[str] = None
-    submitter_contact: Optional[str] = None
-    anonymous: bool = False
+    anonymous: bool = False  # hide reporter identity from public records only
 
 
 @api.post("/public/complaints")
-async def submit_complaint(body: ComplaintCreate, request: Request):
+async def submit_complaint(body: ComplaintCreate, request: Request,
+                           citizen: dict = Depends(citizen_auth.require_verified_citizen)):
     if len(body.title.strip()) < 5:
         raise HTTPException(400, "Title must be at least 5 characters.")
     if len(body.description.strip()) < 20:
         raise HTTPException(400, "Please provide at least 20 characters of description.")
-    # Reject payloads that are unreasonably large (defense-in-depth vs 10k Pydantic)
     if len(body.title) > 300 or len(body.description) > 5000:
         raise HTTPException(400, "Content exceeds allowed size.")
-    # Rate limit spam / abuse: 3 per IP per hour, 10 per IP per day
     ip = _client_ip(request)
-    _rate_limit(f"complaint-hr:{ip}", 3, 3600)
-    _rate_limit(f"complaint-day:{ip}", 10, 86400)
+    _rate_limit(f"complaint-hr:{ip}", 5, 3600)
+    # Per-citizen caps: 3 reports / day, 1 per project
+    day_ago = (now_utc() - timedelta(days=1)).isoformat()
+    if await db.complaints.count_documents({"citizen_id": citizen["id"], "created_at": {"$gte": day_ago}}) >= 3:
+        raise HTTPException(429, "You can file at most 3 reports per day.")
+    if body.project_id and await db.complaints.find_one({"citizen_id": citizen["id"], "project_id": body.project_id}):
+        raise HTTPException(409, "You already filed a report on this project. Reviewers will follow up.")
     entry = {
         "id": gen_id(),
         "created_at": now_utc().isoformat(),
@@ -857,9 +859,11 @@ async def submit_complaint(body: ComplaintCreate, request: Request):
         "category": body.category,
         "title": body.title.strip(),
         "description": body.description.strip(),
-        "submitter_name": None if body.anonymous else (body.submitter_name or None),
-        "submitter_email": None if body.anonymous else (body.submitter_email or None),
-        "submitter_contact": None if body.anonymous else (body.submitter_contact or None),
+        "citizen_id": citizen["id"],
+        "submitter_name": citizen["name"],
+        "submitter_email": citizen["email"],
+        "submitter_contact": citizen["phone"],
+        "submitter_verified": True,
         "anonymous": bool(body.anonymous),
         "status": "new",  # new | under_review | resolved | dismissed
         "reviewer_notes": "",
@@ -971,6 +975,20 @@ async def mark_all_read(user: dict = Depends(get_current_user)):
         {"$set": {"read": True}},
     )
     return {"ok": True, "updated": r.modified_count}
+
+
+@api.delete("/notifications/{nid}")
+async def delete_notification(nid: str, user: dict = Depends(get_current_user)):
+    r = await db.notifications.delete_one({"id": nid, "user_id": user["id"]})
+    if not r.deleted_count:
+        raise HTTPException(404, "Notification not found")
+    return {"ok": True}
+
+
+@api.delete("/notifications")
+async def clear_notifications(user: dict = Depends(get_current_user)):
+    r = await db.notifications.delete_many({"user_id": user["id"]})
+    return {"ok": True, "deleted": r.deleted_count}
 
 
 # ---------- Entity Watchlist ----------
@@ -1394,7 +1412,31 @@ async def simulate_alert(user: dict = Depends(require_role("admin"))):
     return inc
 
 
+# ---------- Citizens admin ----------
+@api.get("/citizens")
+async def list_citizens(user: dict = Depends(require_role("admin"))):
+    out = await db.citizens.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(500)
+    counts = {r["_id"]: r["n"] async for r in db.complaints.aggregate(
+        [{"$match": {"citizen_id": {"$ne": None}}}, {"$group": {"_id": "$citizen_id", "n": {"$sum": 1}}}])}
+    for c in out:
+        c["reports"] = counts.get(c["id"], 0)
+    return out
+
+
+@api.patch("/citizens/{cid}/ban")
+async def toggle_ban_citizen(cid: str, user: dict = Depends(require_role("admin"))):
+    c = await db.citizens.find_one({"id": cid}, {"_id": 0, "password_hash": 0})
+    if not c:
+        raise HTTPException(404, "Citizen not found")
+    banned = not c.get("banned")
+    await db.citizens.update_one({"id": cid}, {"$set": {"banned": banned}})
+    await _log_audit("CITIZEN_BANNED" if banned else "CITIZEN_UNBANNED", actor=user, note=f"{c['email']} {c['phone']}")
+    c["banned"] = banned
+    return c
+
+
 app.include_router(api)
+app.include_router(citizen_auth.router)
 
 # CORS — env-driven allowlist. Wildcard is REJECTED when credentials are allowed.
 _cors_env = (os.environ.get("CORS_ORIGINS") or "").strip()

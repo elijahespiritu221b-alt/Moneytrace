@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
-import { Bell, MessageSquareWarning, GitPullRequestArrow, AlertOctagon, CheckCheck } from "lucide-react";
+import { Bell, MessageSquareWarning, GitPullRequestArrow, AlertOctagon, CheckCheck, X, Trash2 } from "lucide-react";
 
 const KIND_ICON = {
   complaint: MessageSquareWarning,
@@ -77,6 +77,18 @@ export function NotificationBell() {
     } finally { setLoading(false); }
   };
 
+  const remove = async (e, id) => {
+    e.stopPropagation();
+    setItems((xs) => xs.filter((n) => n.id !== id));
+    try { await api.delete(`/notifications/${id}`); } finally { refresh(); }
+  };
+
+  const clearAll = async () => {
+    if (!window.confirm("Delete all notifications?")) return;
+    setLoading(true);
+    try { await api.delete("/notifications"); refresh(); } finally { setLoading(false); }
+  };
+
   return (
     <div className="relative" ref={wrapRef}>
       <button
@@ -106,16 +118,28 @@ export function NotificationBell() {
               <Bell className="w-3.5 h-3.5 text-sky-400" /> Notifications
               {count > 0 && <span className="text-[10px] text-slate-500">({count} unread)</span>}
             </div>
-            {items.some((n) => !n.read) && (
-              <button
-                onClick={markAll}
-                disabled={loading}
-                className="text-[10px] uppercase tracking-widest text-sky-400 hover:text-sky-300 inline-flex items-center gap-1"
-                data-testid="notif-mark-all"
-              >
-                <CheckCheck className="w-3 h-3" /> Mark all read
-              </button>
-            )}
+            <div className="flex items-center gap-3">
+              {items.some((n) => !n.read) && (
+                <button
+                  onClick={markAll}
+                  disabled={loading}
+                  className="text-[10px] uppercase tracking-widest text-sky-400 hover:text-sky-300 inline-flex items-center gap-1"
+                  data-testid="notif-mark-all"
+                >
+                  <CheckCheck className="w-3 h-3" /> Mark all read
+                </button>
+              )}
+              {items.length > 0 && (
+                <button
+                  onClick={clearAll}
+                  disabled={loading}
+                  className="text-[10px] uppercase tracking-widest text-red-400 hover:text-red-300 inline-flex items-center gap-1"
+                  data-testid="notif-clear-all"
+                >
+                  <Trash2 className="w-3 h-3" /> Clear all
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="overflow-y-auto flex-1">
@@ -129,11 +153,14 @@ export function NotificationBell() {
                 const Icon = KIND_ICON[n.kind] || Bell;
                 const color = KIND_COLOR[n.kind] || "text-slate-400";
                 return (
-                  <button
+                  <div
                     key={n.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => openItem(n)}
+                    onKeyDown={(e) => e.key === "Enter" && openItem(n)}
                     data-testid={`notif-item-${n.id}`}
-                    className={`w-full text-left px-3 py-2.5 border-b border-slate-800 hover:bg-slate-800/60 transition-colors flex items-start gap-2.5 ${
+                    className={`group w-full text-left px-3 py-2.5 border-b border-slate-800 hover:bg-slate-800/60 transition-colors flex items-start gap-2.5 cursor-pointer ${
                       n.read ? "opacity-60" : ""
                     }`}
                   >
@@ -148,7 +175,15 @@ export function NotificationBell() {
                       {n.body && <div className="text-[11px] text-slate-400 mt-0.5 line-clamp-2">{n.body}</div>}
                       <div className="text-[10px] text-slate-500 mt-1 font-mono">{relTime(n.created_at)}</div>
                     </div>
-                  </button>
+                    <button
+                      onClick={(e) => remove(e, n.id)}
+                      aria-label="Delete notification"
+                      data-testid={`notif-delete-${n.id}`}
+                      className="shrink-0 p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 );
               })
             )}

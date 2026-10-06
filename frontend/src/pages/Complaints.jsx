@@ -5,7 +5,7 @@ import { Card } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { Megaphone, Mail, User as UserIcon, Building2, Trash2 } from "lucide-react";
+import { Megaphone, Mail, Phone, User as UserIcon, Building2, Trash2, Ban } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { useAuth } from "../lib/auth-context";
@@ -51,6 +51,14 @@ export default function Complaints() {
     } catch (e) {
       toast.error(e.response?.data?.detail || "Failed");
     }
+  };
+
+  const ban = async (cid) => {
+    if (!window.confirm("Toggle suspension for this reporter? Suspended citizens cannot file reports.")) return;
+    try {
+      const { data } = await api.patch(`/citizens/${cid}/ban`);
+      toast.success(data.banned ? `${data.name} suspended` : `${data.name} reinstated`);
+    } catch (e) { toast.error(e.response?.data?.detail || "Failed"); }
   };
 
   const remove = async (c) => {
@@ -108,12 +116,15 @@ export default function Complaints() {
                       {c.category}
                     </span>
                     <span className="text-xs text-slate-500 font-mono">{fmtDate(c.created_at)}</span>
-                    {c.anonymous
+                    {c.anonymous && !c.citizen_id
                       ? <span className="text-[10px] text-slate-500 uppercase tracking-widest">Anonymous</span>
                       : (
                         <>
                           <span className="text-xs text-slate-400 inline-flex items-center gap-1"><UserIcon className="w-3 h-3" />{c.submitter_name || "—"}</span>
                           {c.submitter_email && <span className="text-xs text-slate-500 inline-flex items-center gap-1"><Mail className="w-3 h-3" />{c.submitter_email}</span>}
+                          {c.submitter_contact && <span className="text-xs text-slate-500 inline-flex items-center gap-1"><Phone className="w-3 h-3" />{c.submitter_contact}</span>}
+                          {c.submitter_verified && <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 uppercase tracking-widest" data-testid={`complaint-verified-${c.id}`}>Verified</span>}
+                          {c.anonymous && <span className="text-[10px] text-slate-500 uppercase tracking-widest">hidden from public</span>}
                         </>
                       )}
                   </div>
@@ -154,9 +165,16 @@ export default function Complaints() {
                   </>
                 )}
                 {user?.role === "admin" && (
-                  <Button onClick={() => remove(c)} size="sm" variant="ghost" className="text-red-400 hover:text-red-300 hover:bg-red-500/10" data-testid={`complaint-delete-${c.id}`}>
-                    <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete
-                  </Button>
+                  <>
+                    {c.citizen_id && (
+                      <Button onClick={() => ban(c.citizen_id)} size="sm" variant="ghost" className="text-orange-400 hover:text-orange-300 hover:bg-orange-500/10" data-testid={`complaint-ban-${c.id}`}>
+                        <Ban className="w-3.5 h-3.5 mr-1" /> Suspend reporter
+                      </Button>
+                    )}
+                    <Button onClick={() => remove(c)} size="sm" variant="ghost" className="text-red-400 hover:text-red-300 hover:bg-red-500/10" data-testid={`complaint-delete-${c.id}`}>
+                      <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete
+                    </Button>
+                  </>
                 )}
                 </div>
               </div>

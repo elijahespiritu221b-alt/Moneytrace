@@ -1,5 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./lib/auth-context";
+import { CitizenProvider } from "./lib/citizen-context";
+import CitizenAuth from "./pages/CitizenAuth";
 import { Toaster } from "sonner";
 import LoginPage from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -29,6 +31,7 @@ function Protected({ children, role }) {
 function App() {
   return (
     <AuthProvider>
+      <CitizenProvider>
       <BrowserRouter>
         <Toaster theme="dark" position="top-right" richColors />
         <Routes>
@@ -36,6 +39,7 @@ function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/public" element={<PublicPortal />} />
           <Route path="/public/project/:id" element={<PublicProjectDetail />} />
+          <Route path="/public/account" element={<CitizenAuth />} />
           <Route path="/console" element={<Protected><Dashboard /></Protected>} />
           <Route path="/console/offices" element={<Protected><Offices /></Protected>} />
           <Route path="/console/offices/:code/units" element={<Protected><MonitoringUnits /></Protected>} />
@@ -60,6 +64,7 @@ function App() {
           <Route path="*" element={<Navigate to="/public" replace />} />
         </Routes>
       </BrowserRouter>
+      </CitizenProvider>
     </AuthProvider>
   );
 }
