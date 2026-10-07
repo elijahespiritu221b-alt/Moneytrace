@@ -11,7 +11,7 @@ export default function SecurityAlerts() {
   const [status, setStatus] = useState(null);
   const [contacts, setContacts] = useState([]);
   const [alerts, setAlerts] = useState([]);
-  const [form, setForm] = useState({ name: "", title: "", phone: "" });
+  const [form, setForm] = useState({ name: "", title: "", phone: "", callmebot_apikey: "" });
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
@@ -22,7 +22,7 @@ export default function SecurityAlerts() {
 
   const add = async (e) => {
     e.preventDefault(); setBusy(true);
-    try { await api.post("/security/contacts", form); toast.success("Number registered"); setForm({ name: "", title: "", phone: "" }); load(); }
+    try { await api.post("/security/contacts", form); toast.success("Number registered"); setForm({ name: "", title: "", phone: "", callmebot_apikey: "" }); load(); }
     catch (err) { toast.error(err.response?.data?.detail || err.message); }
     finally { setBusy(false); }
   };
@@ -30,8 +30,8 @@ export default function SecurityAlerts() {
   const toggle = async (id) => { await api.patch(`/security/contacts/${id}`); load(); };
   const test = async (id) => {
     const { data } = await api.post(`/security/contacts/${id}/test`);
-    if (data.status === "sent") toast.success("Test message sent");
-    else if (data.status === "not_configured") toast.warning("Twilio not configured — message logged only");
+    if (data.status === "sent") toast.success(`Test message sent via ${data.provider || "WhatsApp"}`);
+    else if (data.status === "not_configured") toast.warning("No WhatsApp provider for this contact — add a CallMeBot key or Twilio credentials");
     else toast.error(data.error || "Send failed");
   };
   const simulate = async () => {
@@ -50,11 +50,19 @@ export default function SecurityAlerts() {
 
         {status && (
           <div data-testid="whatsapp-status-banner"
-            className={`rounded-md border px-4 py-3 text-sm flex items-center gap-3 ${status.whatsapp_configured ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-amber-500/40 bg-amber-500/10 text-amber-200"}`}>
-            <MessageCircle className="w-4 h-4 shrink-0" />
-            {status.whatsapp_configured
-              ? "Twilio WhatsApp is connected. Alerts are delivered live."
-              : "Twilio WhatsApp is NOT configured. Incidents are still recorded below, but messages are only logged. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_WHATSAPP_FROM in backend/.env."}
+            className={`rounded-md border px-4 py-3 text-sm flex items-start gap-3 ${status.whatsapp_configured || status.callmebot_contacts > 0 ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-amber-500/40 bg-amber-500/10 text-amber-200"}`}>
+            <MessageCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <div>
+              {status.whatsapp_configured
+                ? "Twilio WhatsApp is connected. Alerts are delivered live to every contact."
+                : status.callmebot_contacts > 0
+                  ? `${status.callmebot_contacts} contact(s) receive live WhatsApp alerts via CallMeBot. Contacts without a CallMeBot key are logged only until Twilio is configured.`
+                  : "No WhatsApp provider yet. Easiest: each official gets a free CallMeBot key (see steps below) and you enter it with their number."}
+              <div className="mt-2 text-xs opacity-80">
+                <b>Get a free CallMeBot key:</b> on WhatsApp, message <span className="font-mono">+34 644 05 92 17</span> with the text
+                <span className="font-mono"> "I allow callmebot to send me messages"</span>. The bot replies with a 7-digit API key within 2 minutes.
+              </div>
+            </div>
           </div>
         )}
 
@@ -69,10 +77,11 @@ export default function SecurityAlerts() {
 
         <Card className="p-6 bg-[#111827] border-slate-800 space-y-4">
           <h2 className="text-lg font-semibold">Register an official's number</h2>
-          <form onSubmit={add} className="grid md:grid-cols-4 gap-3">
+          <form onSubmit={add} className="grid md:grid-cols-5 gap-3">
             <Input required placeholder="Full name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid="contact-name-input" className="bg-slate-900 border-slate-700" />
             <Input placeholder="Position / office" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} data-testid="contact-title-input" className="bg-slate-900 border-slate-700" />
             <Input required placeholder="+639171234567 or 09171234567" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid="contact-phone-input" className="bg-slate-900 border-slate-700" />
+            <Input placeholder="CallMeBot key (e.g. 5380143)" value={form.callmebot_apikey} onChange={(e) => setForm({ ...form, callmebot_apikey: e.target.value })} data-testid="contact-apikey-input" className="bg-slate-900 border-slate-700 font-mono" />
             <Button type="submit" disabled={busy} className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold" data-testid="contact-add-button">Add number</Button>
           </form>
           <div className="divide-y divide-slate-800" data-testid="contacts-list">
@@ -82,7 +91,7 @@ export default function SecurityAlerts() {
                 <div className={`w-2 h-2 rounded-full ${c.enabled ? "bg-emerald-400" : "bg-slate-600"}`} />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm text-slate-100">{c.name} <span className="text-slate-500">{c.title && `· ${c.title}`}</span></div>
-                  <div className="text-xs font-mono text-slate-400">{c.phone}</div>
+                  <div className="text-xs font-mono text-slate-400">{c.phone} {c.callmebot_apikey ? <span className="ml-2 text-emerald-400">● CallMeBot live</span> : <span className="ml-2 text-slate-600">○ no key (log only)</span>}</div>
                 </div>
                 <Button size="sm" variant="ghost" onClick={() => test(c.id)} data-testid={`contact-test-${c.id}`}><Send className="w-3.5 h-3.5 mr-1" /> Test</Button>
                 <Button size="sm" variant="ghost" onClick={() => toggle(c.id)} data-testid={`contact-toggle-${c.id}`}><Power className="w-3.5 h-3.5 mr-1" /> {c.enabled ? "Disable" : "Enable"}</Button>

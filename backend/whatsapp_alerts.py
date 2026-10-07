@@ -15,6 +15,18 @@ def is_configured() -> bool:
     return all(os.environ.get(k) for k in ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_WHATSAPP_FROM"))
 
 
+async def _send_callmebot(to: str, apikey: str, body: str) -> dict:
+    import httpx
+    async with httpx.AsyncClient(timeout=20) as cx:
+        r = await cx.get("https://api.callmebot.com/whatsapp.php",
+                         params={"phone": to, "text": body, "apikey": apikey})
+    ok = r.status_code == 200 and "error" not in r.text.lower()[:200]
+    if ok:
+        return {"status": "sent", "provider": "callmebot"}
+    log.error(f"CallMeBot send failed to {to}: {r.status_code} {r.text[:200]}")
+    return {"status": "failed", "provider": "callmebot", "error": r.text[:200] or f"HTTP {r.status_code}"}
+
+
 def _send_sync(to: str, body: str) -> str:
     from twilio.rest import Client
     client = Client(os.environ["TWILIO_ACCOUNT_SID"], os.environ["TWILIO_AUTH_TOKEN"])
@@ -25,14 +37,16 @@ def _send_sync(to: str, body: str) -> str:
     return msg.sid
 
 
-async def send_whatsapp(to: str, body: str) -> dict:
-    """Returns {status: sent|not_configured|failed, sid?, error?}."""
+async def send_whatsapp(to: str, body: str, callmebot_apikey: Optional[str] = None) -> dict:
+    """Returns {status: sent|not_configured|failed, provider?, sid?, error?}."""
+    if callmebot_apikey:
+        return await _send_callmebot(to, callmebot_apikey, body)
     if not is_configured():
         log.warning(f"[WhatsApp NOT CONFIGURED] to={to} body={body[:120]!r}")
         return {"status": "not_configured"}
     try:
         sid = await asyncio.to_thread(_send_sync, to, body)
-        return {"status": "sent", "sid": sid}
+        return {"status": "sent", "provider": "twilio", "sid": sid}
     except Exception as e:
         log.error(f"WhatsApp send failed to {to}: {e}")
         return {"status": "failed", "error": str(e)[:300]}
@@ -62,7 +76,7 @@ async def dispatch_security_alert(db, kind: str, summary: str, details: dict,
     body = "\n".join(lines)
     deliveries = []
     for c in contacts:
-        res = await send_whatsapp(c["phone"], body)
+        res = await send_whatsapp(c["phone"], body, c.get("callmebot_apikey"))
         deliveries.append({"contact_id": c["id"], "name": c["name"], "phone": c["phone"], **res})
     incident = {
         "id": gen_id(), "kind": kind, "summary": summary, "details": details,

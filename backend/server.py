@@ -1327,6 +1327,7 @@ class AlertContactIn(BaseModel):
     name: str
     phone: str
     title: Optional[str] = ""
+    callmebot_apikey: Optional[str] = ""
 
 
 def _norm_phone(p: str) -> str:
@@ -1342,6 +1343,7 @@ def _norm_phone(p: str) -> str:
 async def security_status(user: dict = Depends(require_role("admin"))):
     return {
         "whatsapp_configured": whatsapp_alerts.is_configured(),
+        "callmebot_contacts": await db.alert_contacts.count_documents({"callmebot_apikey": {"$nin": [None, ""]}}),
         "contacts": await db.alert_contacts.count_documents({}),
         "incidents": await db.security_alerts.count_documents({}),
         "rules": {
@@ -1364,6 +1366,7 @@ async def add_contact(body: AlertContactIn, user: dict = Depends(require_role("a
         raise HTTPException(status_code=409, detail="This number is already registered")
     doc = {"id": gen_id(), "name": body.name.strip()[:80], "title": (body.title or "").strip()[:80],
            "phone": phone, "enabled": True, "created_by": user["email"],
+           "callmebot_apikey": re.sub(r"\D", "", body.callmebot_apikey or "")[:12] or None,
            "created_at": now_utc().isoformat()}
     await db.alert_contacts.insert_one(dict(doc))
     await _log_audit("ALERT_CONTACT_ADDED", actor=user, note=f"{doc['name']} {phone}")
@@ -1395,7 +1398,8 @@ async def test_contact(cid: str, user: dict = Depends(require_role("admin"))):
     if not c:
         raise HTTPException(status_code=404, detail="Contact not found")
     res = await whatsapp_alerts.send_whatsapp(
-        c["phone"], f"✅ MONEYTRACE test alert. Hi {c['name']}, your number is registered for security alerts.")
+        c["phone"], f"✅ MONEYTRACE test alert. Hi {c['name']}, your number is registered for security alerts.",
+        c.get("callmebot_apikey"))
     return res
 
 
